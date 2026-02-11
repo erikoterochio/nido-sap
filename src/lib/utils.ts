@@ -69,29 +69,3 @@ export function formatDuration(hours: number): string {
   return `${h}:${m.toString().padStart(2, "0")}`;
 }
 
-// Calcular duración entre dos horas
-export function calculateDuration(start: string, end: string): number {
-  if (!isValidTime(start) || !isValidTime(end)) return 0;
-  
-  const [startH, startM] = start.split(":").map(Number);
-  const [endH, endM] = end.split(":").map(Number);
-  
-  let startMinutes = startH * 60 + startM;
-  let endMinutes = endH * 60 + endM;
-  
-  // Si termina al día siguiente
-  if (endMinutes < startMinutes) {
-    endMinutes += 24 * 60;
-  }
-  
-  return (endMinutes - startMinutes) / 60;
-}
-
-// Formatear moneda (si no existe)
-export function formatCurrency(amount: number): string {
-  return new Intl.NumberFormat("es-AR", {
-    style: "currency",
-    currency: "ARS",
-    minimumFractionDigits: 0,
-  }).format(amount);
-}
