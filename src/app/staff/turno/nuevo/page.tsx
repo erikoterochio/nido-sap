@@ -276,17 +276,16 @@ export default function NuevoTurnoPage() {
               </span>
             </div>
           )}
-          <Button
-            type="submit"
-            size="lg"
-            className="w-full"
-            isLoading={isLoading}
-            disabled={duracionMinutos <= 0}
-          >
-            Guardar Turno
-          </Button>
+        <Button
+          type="submit"
+          size="lg"
+          className="w-full"
+          disabled={isLoading || duracionMinutos <= 0}
+        >
+          {isLoading ? "Guardando..." : "Guardar Turno"}
+        </Button>
         </div>
-
+        
         {/* Spacer para el footer fijo */}
         <div className="h-32" />
       </form>
