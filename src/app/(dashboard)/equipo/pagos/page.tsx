@@ -1,5 +1,6 @@
 'use client'
 
+import { Suspense } from 'react'
 import { useState, useMemo } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
@@ -124,7 +125,6 @@ const mockEmpleadosConPagos: EmpleadoConPagos[] = [
   },
 ]
 
-// Mock historial de pagos
 const mockHistorialPagos = [
   { id: 'p1', fecha: '2026-02-05', empleado: 'Carolina Gómez', concepto: 'Turnos semana 5', monto: 78000, metodo: 'Transferencia' },
   { id: 'p2', fecha: '2026-02-05', empleado: 'Miguel Fernández', concepto: 'Turnos semana 5', monto: 54000, metodo: 'Transferencia' },
@@ -158,7 +158,7 @@ function getInitials(nombre: string, apellido: string) {
   return `${nombre[0]}${apellido[0]}`.toUpperCase()
 }
 
-export default function PagosPage() {
+function PagosContent() {
   const searchParams = useSearchParams()
   const empleadoFilter = searchParams.get('empleado')
   
@@ -169,7 +169,6 @@ export default function PagosPage() {
   const [expandedEmpleados, setExpandedEmpleados] = useState<Set<string>>(new Set())
   const [viewMode, setViewMode] = useState<'pendientes' | 'historial'>('pendientes')
   
-  // Form state for payment
   const [paymentMethod, setPaymentMethod] = useState('transferencia')
   const [paymentNote, setPaymentNote] = useState('')
 
@@ -233,7 +232,6 @@ export default function PagosPage() {
   }
 
   const openPaymentDialog = (empleado: EmpleadoConPagos) => {
-    // Si no hay turnos seleccionados, seleccionar todos
     if (getSelectedTurnosForEmpleado(empleado).length === 0) {
       selectAllTurnosEmpleado(empleado, true)
     }
@@ -255,7 +253,6 @@ export default function PagosPage() {
       nota: paymentNote,
     })
     
-    // Limpiar selección
     turnosPagar.forEach(t => selectedTurnos.delete(t.id))
     setSelectedTurnos(new Set(selectedTurnos))
     
@@ -364,7 +361,6 @@ export default function PagosPage() {
 
       {viewMode === 'pendientes' ? (
         <>
-          {/* Search */}
           <div className="relative max-w-md">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
             <Input
@@ -375,7 +371,6 @@ export default function PagosPage() {
             />
           </div>
 
-          {/* Lista de empleados con pagos pendientes */}
           <div className="space-y-4">
             {filteredEmpleados.length === 0 ? (
               <Card>
@@ -389,7 +384,6 @@ export default function PagosPage() {
                 const isExpanded = expandedEmpleados.has(empleado.id)
                 const selectedCount = getSelectedTurnosForEmpleado(empleado).length
                 const allSelected = selectedCount === empleado.turnosPendientes.length
-                const someSelected = selectedCount > 0 && selectedCount < empleado.turnosPendientes.length
                 
                 return (
                   <Card key={empleado.id}>
@@ -461,8 +455,6 @@ export default function PagosPage() {
                                   <TableHead className="w-10">
                                     <Checkbox
                                       checked={allSelected}
-                                      // @ts-ignore
-                                      indeterminate={someSelected}
                                       onCheckedChange={(checked) => selectAllTurnosEmpleado(empleado, checked as boolean)}
                                     />
                                   </TableHead>
@@ -536,7 +528,6 @@ export default function PagosPage() {
           </div>
         </>
       ) : (
-        /* Historial de pagos */
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Historial de Pagos</CardTitle>
@@ -589,7 +580,6 @@ export default function PagosPage() {
 
           {selectedEmpleado && (
             <div className="space-y-4">
-              {/* Resumen */}
               <div className="p-4 bg-gray-50 rounded-lg space-y-2">
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-500">Turnos seleccionados</span>
@@ -608,7 +598,6 @@ export default function PagosPage() {
                 </div>
               </div>
 
-              {/* CVU/Alias */}
               {selectedEmpleado.cvuAlias && (
                 <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
                   <div className="flex items-center gap-2 text-blue-800">
@@ -621,7 +610,6 @@ export default function PagosPage() {
                 </div>
               )}
 
-              {/* Método de pago */}
               <div className="space-y-2">
                 <Label>Método de Pago</Label>
                 <Select value={paymentMethod} onValueChange={setPaymentMethod}>
@@ -636,7 +624,6 @@ export default function PagosPage() {
                 </Select>
               </div>
 
-              {/* Nota */}
               <div className="space-y-2">
                 <Label>Nota (opcional)</Label>
                 <Textarea
@@ -661,5 +648,13 @@ export default function PagosPage() {
         </DialogContent>
       </Dialog>
     </div>
+  )
+}
+
+export default function PagosPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center">Cargando...</div>}>
+      <PagosContent />
+    </Suspense>
   )
 }
