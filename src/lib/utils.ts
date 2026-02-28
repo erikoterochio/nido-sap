@@ -13,13 +13,14 @@ export function formatCurrency(amount: number, currency: string = 'ARS') {
   }).format(amount)
 }
 
-export function formatDate(dateStr: string, options?: Intl.DateTimeFormatOptions) {
+export function formatDate(date: string | Date, options?: Intl.DateTimeFormatOptions) {
   const defaultOptions: Intl.DateTimeFormatOptions = {
     day: '2-digit',
     month: 'short',
     year: 'numeric',
   }
-  return new Date(dateStr).toLocaleDateString('es-AR', options || defaultOptions)
+  const dateObj = typeof date === 'string' ? new Date(date) : date
+  return dateObj.toLocaleDateString('es-AR', options || defaultOptions)
 }
 
 export function isValidTime(time: string): boolean {
