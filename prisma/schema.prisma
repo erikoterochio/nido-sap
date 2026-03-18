@@ -1,5 +1,4 @@
 // Benveo CoLiving - Schema de Base de Datos
-// MVP: Reportería P&L + Liquidaciones Limpieza
 
 generator client {
   provider = "prisma-client-js"
@@ -26,6 +25,8 @@ model Usuario {
 
   empleado      Empleado?
   auditLogs     AuditLog[]
+
+  @@map("usuario")
 }
 
 enum Rol {
@@ -58,6 +59,8 @@ model Empleado {
   gastos            Gasto[]
   pagos             PagoEmpleado[]
   anticipos         Anticipo[]
+
+  @@map("empleado")
 }
 
 // ============================================================================
@@ -76,6 +79,7 @@ model Departamento {
   limpiezasIncluidas    Boolean               @default(false)
   airbnbId              String?
   estado                EstadoDepartamento    @default(ACTIVO)
+  limiteHoras           Decimal               @db.Decimal(4, 2) @default(4)
   createdAt             DateTime              @default(now())
   updatedAt             DateTime              @updatedAt
 
@@ -83,6 +87,8 @@ model Departamento {
   gastos                Gasto[]
   ingresos              IngresoMensual[]
   liquidaciones         Liquidacion[]
+
+  @@map("departamento")
 }
 
 enum EstadoDepartamento {
@@ -111,18 +117,22 @@ model TurnoLimpieza {
   viaticos        Decimal       @db.Decimal(10, 2) @default(0)
   esFeriadoFinde  Boolean       @default(false)
   comentarios     String?
+  tipo            TipoTurno     @default(LIMPIEZA)
   precioHora      Decimal       @db.Decimal(10, 2)
   montoTotal      Decimal       @db.Decimal(12, 2)
   mes             DateTime      @db.Date
   estado          EstadoTurno   @default(PENDIENTE_REVISION)
   alertas         String[]
+  pagoId          String?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
   departamento    Departamento  @relation(fields: [departamentoId], references: [id])
   empleado        Empleado      @relation(fields: [empleadoId], references: [id])
+  pago            PagoEmpleado? @relation(fields: [pagoId], references: [id])
   historial       HistorialCambio[]
 
+  @@map("turno")
   @@index([departamentoId, mes])
   @@index([empleadoId, mes])
   @@index([estado])
@@ -130,8 +140,13 @@ model TurnoLimpieza {
 
 enum EstadoTurno {
   PENDIENTE_REVISION
-  VERIFICADO
-  EDITADO
+  APROBADO
+  PAGADO
+}
+
+enum TipoTurno {
+  LIMPIEZA
+  MANTENIMIENTO
 }
 
 // ============================================================================
@@ -148,6 +163,8 @@ model TipoGasto {
   updatedAt   DateTime        @updatedAt
 
   gastos      Gasto[]
+
+  @@map("tipogasto")
 }
 
 enum CategoriaGasto {
@@ -178,6 +195,7 @@ model Gasto {
   tipoGasto       TipoGasto     @relation(fields: [tipoGastoId], references: [id])
   historial       HistorialCambio[]
 
+  @@map("gasto")
   @@index([departamentoId, mes])
 }
 
@@ -203,6 +221,7 @@ model IngresoMensual {
 
   departamento    Departamento  @relation(fields: [departamentoId], references: [id])
 
+  @@map("ingresomensual")
   @@unique([departamentoId, mes])
 }
 
@@ -237,6 +256,7 @@ model Liquidacion {
 
   departamento          Departamento        @relation(fields: [departamentoId], references: [id])
 
+  @@map("liquidacion")
   @@unique([departamentoId, mes])
 }
 
@@ -266,6 +286,9 @@ model PagoEmpleado {
   updatedAt     DateTime    @updatedAt
 
   empleado      Empleado    @relation(fields: [empleadoId], references: [id])
+  turnos        TurnoLimpieza[]
+
+  @@map("pagoempleado")
 }
 
 model Anticipo {
@@ -280,6 +303,8 @@ model Anticipo {
   updatedAt     DateTime        @updatedAt
 
   empleado      Empleado        @relation(fields: [empleadoId], references: [id])
+
+  @@map("anticipo")
 }
 
 enum EstadoAnticipo {
@@ -297,6 +322,8 @@ model Configuracion {
   valor       Json
   descripcion String?
   updatedAt   DateTime  @updatedAt
+
+  @@map("configuracion")
 }
 
 model DiaEspecial {
@@ -305,6 +332,8 @@ model DiaEspecial {
   tipo        TipoDiaEspecial
   descripcion String?
   createdAt   DateTime        @default(now())
+
+  @@map("diaespecial")
 }
 
 enum TipoDiaEspecial {
@@ -331,6 +360,7 @@ model HistorialCambio {
   turno           TurnoLimpieza?  @relation(fields: [entidadId], references: [id], map: "historial_turno")
   gasto           Gasto?          @relation(fields: [entidadId], references: [id], map: "historial_gasto")
 
+  @@map("historialcambio")
   @@index([entidad, entidadId])
 }
 
@@ -346,6 +376,7 @@ model AuditLog {
 
   usuario     Usuario   @relation(fields: [usuarioId], references: [id])
 
+  @@map("auditlog")
   @@index([usuarioId])
   @@index([entidad, entidadId])
 }
