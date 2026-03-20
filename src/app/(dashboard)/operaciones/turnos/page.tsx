@@ -1,343 +1,380 @@
 'use client'
 
-import { useState } from 'react'
-import Link from 'next/link'
+import { useState, useEffect, useCallback } from 'react'
 import {
-  Plus,
-  Search,
-  Sparkles,
-  CheckCircle2,
-  Clock,
-  User,
-  Building2,
-  Calendar,
-  MoreHorizontal,
-  Eye,
-  Edit,
-  Trash2,
-  ArrowRight,
-  AlertCircle,
-  ChevronRight,
-  MapPin,
-  DollarSign,
-  X,
+  Plus, Search, Sparkles, CheckCircle2, Clock, Calendar,
+  MoreHorizontal, Eye, Edit, AlertCircle, X, AlertTriangle, Check,
 } from 'lucide-react'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 
-type StatusTurno = 'PENDIENTE' | 'EN_PROGRESO' | 'COMPLETADO' | 'CANCELADO'
+// ============================================================================
+// TIPOS
+// ============================================================================
 
-interface TurnoLimpieza {
+interface Turno {
   id: string
   fecha: string
-  horaInicio: string
-  departamento: string
+  horaEntrada: string
+  horaSalida: string
+  duracionHoras: number
   departamentoId: string
-  empleadoId: string | null
-  empleadoNombre: string | null
-  horas: number
+  empleadoId: string
   precioHora: number
   viaticos: number
-  esFindeFeriado: boolean
-  status: StatusTurno
-  motivoTurno: 'checkout' | 'ingreso' | 'mantenimiento' | 'rutina'
-  notas: string | null
-  reservaId?: string
-  huespedSaliente?: string
-  huespedEntrante?: string
+  esFeriadoFinde: boolean
+  montoTotal: number
+  estado: 'PENDIENTE_REVISION' | 'APROBADO' | 'PAGADO'
+  tipo: 'LIMPIEZA' | 'MANTENIMIENTO'
+  alertas: string[]
+  comentarios?: string
+  departamento: { id: string; nombre: string }
+  empleado: { id: string; nombre: string; apellido: string }
 }
 
-// Mock data
-const mockTurnos: TurnoLimpieza[] = [
-  {
-    id: 'tl1',
-    fecha: '2026-02-28',
-    horaInicio: '10:00',
-    departamento: 'Depto A1 - Palermo',
-    departamentoId: '1',
-    empleadoId: 'emp1',
-    empleadoNombre: 'Carolina Gómez',
-    horas: 3,
-    precioHora: 6000,
-    viaticos: 2000,
-    esFindeFeriado: false,
-    status: 'PENDIENTE',
-    motivoTurno: 'checkout',
-    notas: null,
-    reservaId: 'res1',
-    huespedSaliente: 'John Smith',
-    huespedEntrante: 'María García',
-  },
-  {
-    id: 'tl2',
-    fecha: '2026-02-28',
-    horaInicio: '11:00',
-    departamento: 'Depto B2 - Recoleta',
-    departamentoId: '2',
-    empleadoId: 'emp2',
-    empleadoNombre: 'Miguel Fernández',
-    horas: 2.5,
-    precioHora: 6000,
-    viaticos: 1500,
-    esFindeFeriado: false,
-    status: 'EN_PROGRESO',
-    motivoTurno: 'checkout',
-    notas: 'El huésped reportó mancha en el sillón, revisar',
-    reservaId: 'res2',
-    huespedSaliente: 'Roberto Martínez',
-    huespedEntrante: null,
-  },
-  {
-    id: 'tl3',
-    fecha: '2026-03-01',
-    horaInicio: '09:00',
-    departamento: 'Depto C3 - Belgrano',
-    departamentoId: '3',
-    empleadoId: 'emp1',
-    empleadoNombre: 'Carolina Gómez',
-    horas: 4,
-    precioHora: 6000,
-    viaticos: 2000,
-    esFindeFeriado: false,
-    status: 'PENDIENTE',
-    motivoTurno: 'checkout',
-    notas: null,
-    huespedSaliente: 'Ana López',
-    huespedEntrante: 'Carlos Díaz',
-  },
-  {
-    id: 'tl4',
-    fecha: '2026-03-01',
-    horaInicio: '14:00',
-    departamento: 'Depto D4 - San Telmo',
-    departamentoId: '4',
-    empleadoId: null,
-    empleadoNombre: null,
-    horas: 3,
-    precioHora: 6000,
-    viaticos: 2000,
-    esFindeFeriado: false,
-    status: 'PENDIENTE',
-    motivoTurno: 'checkout',
-    notas: null,
-    huespedSaliente: 'Felipe Torres',
-    huespedEntrante: 'Lucía Morales',
-  },
-  {
-    id: 'tl5',
-    fecha: '2026-03-02',
-    horaInicio: '10:00',
-    departamento: 'Depto A1 - Palermo',
-    departamentoId: '1',
-    empleadoId: 'emp6',
-    empleadoNombre: 'Roberto López',
-    horas: 2,
-    precioHora: 6000,
-    viaticos: 0,
-    esFindeFeriado: false,
-    status: 'PENDIENTE',
-    motivoTurno: 'rutina',
-    notas: 'Limpieza de rutina semanal',
-  },
-  {
-    id: 'tl6',
-    fecha: '2026-02-27',
-    horaInicio: '10:00',
-    departamento: 'Depto E5 - Núñez',
-    departamentoId: '5',
-    empleadoId: 'emp2',
-    empleadoNombre: 'Miguel Fernández',
-    horas: 3,
-    precioHora: 6000,
-    viaticos: 1500,
-    esFindeFeriado: false,
-    status: 'COMPLETADO',
-    motivoTurno: 'checkout',
-    notas: null,
-    huespedSaliente: 'Valentina Ruiz',
-  },
-  {
-    id: 'tl7',
-    fecha: '2026-02-26',
-    horaInicio: '11:00',
-    departamento: 'Depto B2 - Recoleta',
-    departamentoId: '2',
-    empleadoId: 'emp1',
-    empleadoNombre: 'Carolina Gómez',
-    horas: 4,
-    precioHora: 6000,
-    viaticos: 2000,
-    esFindeFeriado: false,
-    status: 'COMPLETADO',
-    motivoTurno: 'checkout',
-    notas: null,
-    huespedSaliente: 'Diego Fernández',
-    huespedEntrante: 'Roberto Martínez',
-  },
-  {
-    id: 'tl8',
-    fecha: '2026-03-01',
-    horaInicio: '10:00',
-    departamento: 'Depto F6 - Puerto Madero',
-    departamentoId: '6',
-    empleadoId: null,
-    empleadoNombre: null,
-    horas: 5,
-    precioHora: 6000,
-    viaticos: 3000,
-    esFindeFeriado: true,
-    status: 'PENDIENTE',
-    motivoTurno: 'checkout',
-    notas: null,
-    huespedSaliente: 'Jennifer Adams',
-    huespedEntrante: 'Marc Dupont',
-  },
-]
+interface Empleado { id: string; nombre: string; apellido: string }
+interface Departamento { id: string; nombre: string }
 
-const mockEmpleadosLimpieza = [
-  { id: 'emp1', nombre: 'Carolina Gómez' },
-  { id: 'emp2', nombre: 'Miguel Fernández' },
-  { id: 'emp6', nombre: 'Roberto López' },
-]
+// ============================================================================
+// HELPERS
+// ============================================================================
 
-const statusConfig: Record<StatusTurno, { label: string; color: string; icon: React.ComponentType<{ className?: string }> }> = {
-  PENDIENTE: { label: 'Pendiente', color: 'bg-yellow-100 text-yellow-800', icon: Clock },
-  EN_PROGRESO: { label: 'En progreso', color: 'bg-blue-100 text-blue-800', icon: Sparkles },
-  COMPLETADO: { label: 'Completado', color: 'bg-green-100 text-green-800', icon: CheckCircle2 },
-  CANCELADO: { label: 'Cancelado', color: 'bg-gray-100 text-gray-800', icon: X },
-}
-
-const motivoConfig: Record<TurnoLimpieza['motivoTurno'], { label: string; color: string }> = {
-  checkout: { label: 'Checkout', color: 'bg-purple-100 text-purple-800' },
-  ingreso: { label: 'Ingreso', color: 'bg-blue-100 text-blue-800' },
-  mantenimiento: { label: 'Post-mant.', color: 'bg-orange-100 text-orange-800' },
-  rutina: { label: 'Rutina', color: 'bg-gray-100 text-gray-800' },
+const estadoConfig: Record<string, { label: string; color: string; icon: any }> = {
+  PENDIENTE_REVISION: { label: 'Por revisar', color: 'bg-yellow-100 text-yellow-800', icon: Clock },
+  APROBADO:           { label: 'Aprobado',    color: 'bg-green-100 text-green-800',   icon: CheckCircle2 },
+  PAGADO:             { label: 'Pagado',       color: 'bg-blue-100 text-blue-800',     icon: CheckCircle2 },
 }
 
 function formatCurrency(amount: number) {
-  return new Intl.NumberFormat('es-AR', {
-    style: 'currency',
-    currency: 'ARS',
-    maximumFractionDigits: 0,
-  }).format(amount)
+  return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(amount)
 }
 
 function formatDate(dateStr: string) {
   const date = new Date(dateStr + 'T00:00:00')
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const tomorrow = new Date(today)
-  tomorrow.setDate(today.getDate() + 1)
-  const yesterday = new Date(today)
-  yesterday.setDate(today.getDate() - 1)
-
-  if (date.getTime() === today.getTime()) return 'Hoy'
-  if (date.getTime() === tomorrow.getTime()) return 'Mañana'
+  const today = new Date(); today.setHours(0,0,0,0)
+  const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1)
+  const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1)
+  if (date.getTime() === today.getTime())     return 'Hoy'
+  if (date.getTime() === tomorrow.getTime())  return 'Mañana'
   if (date.getTime() === yesterday.getTime()) return 'Ayer'
-
   return date.toLocaleDateString('es-AR', { weekday: 'short', day: '2-digit', month: 'short' })
 }
 
-function getInitials(nombre: string) {
-  const parts = nombre.split(' ')
-  return parts.length >= 2 ? `${parts[0][0]}${parts[1][0]}`.toUpperCase() : nombre.slice(0, 2).toUpperCase()
+function getInitials(nombre: string, apellido: string) {
+  return `${nombre[0]}${apellido[0]}`.toUpperCase()
 }
 
-export default function TurnosPage() {
-  const [searchTerm, setSearchTerm] = useState('')
-  const [filterStatus, setFilterStatus] = useState<string>('todos')
-  const [filterEmpleado, setFilterEmpleado] = useState<string>('todos')
-  const [viewTab, setViewTab] = useState<'proximos' | 'completados' | 'todos'>('proximos')
-  const [newTurnoOpen, setNewTurnoOpen] = useState(false)
-  const [detailTurno, setDetailTurno] = useState<TurnoLimpieza | null>(null)
+// ============================================================================
+// COMPONENTE PRINCIPAL
+// ============================================================================
 
-  // Form state
-  const [formFecha, setFormFecha] = useState('')
-  const [formHora, setFormHora] = useState('10:00')
-  const [formDepto, setFormDepto] = useState('')
-  const [formEmpleado, setFormEmpleado] = useState('')
-  const [formHoras, setFormHoras] = useState('3')
-  const [formViaticos, setFormViaticos] = useState('2000')
-  const [formMotivo, setFormMotivo] = useState<TurnoLimpieza['motivoTurno']>('checkout')
-  const [formNotas, setFormNotas] = useState('')
+export default function TurnosPage() {
+  // --- Datos ---
+  const [turnos,       setTurnos]       = useState<Turno[]>([])
+  const [empleados,    setEmpleados]    = useState<Empleado[]>([])
+  const [departamentos, setDepartamentos] = useState<Departamento[]>([])
+  const [cargando,     setCargando]     = useState(true)
+
+  // --- Filtros ---
+  const [searchTerm,      setSearchTerm]      = useState('')
+  const [filtroEmpleado,  setFiltroEmpleado]  = useState('todos')
+  const [filtroDepto,     setFiltroDepto]     = useState('todos')
+  const [viewTab,         setViewTab]         = useState<'proximos' | 'completados' | 'todos'>('proximos')
+
+  // --- Modales ---
+  const [detailTurno,   setDetailTurno]   = useState<Turno | null>(null)
+  const [editTurno,     setEditTurno]     = useState<Turno | null>(null)
+  const [newTurnoOpen,  setNewTurnoOpen]  = useState(false)
+  const [guardando,     setGuardando]     = useState(false)
+
+  // --- Form nuevo turno ---
+  const [formFecha,     setFormFecha]     = useState('')
+  const [formEntrada,   setFormEntrada]   = useState('10:00')
+  const [formSalida,    setFormSalida]    = useState('14:00')
+  const [formDepto,     setFormDepto]     = useState('')
+  const [formEmpleado,  setFormEmpleado]  = useState('')
+  const [formViaticos,  setFormViaticos]  = useState('0')
+  const [formTipo,      setFormTipo]      = useState<'LIMPIEZA' | 'MANTENIMIENTO'>('LIMPIEZA')
+  const [formEsFinde,   setFormEsFinde]   = useState(false)
+  const [formNotas,     setFormNotas]     = useState('')
+
+  // --- Form edición ---
+  const [editEntrada,   setEditEntrada]   = useState('')
+  const [editSalida,    setEditSalida]    = useState('')
+  const [editViaticos,  setEditViaticos]  = useState(0)
+  const [editEsFinde,   setEditEsFinde]   = useState(false)
+  const [editTipo,      setEditTipo]      = useState<'LIMPIEZA' | 'MANTENIMIENTO'>('LIMPIEZA')
+  const [editMotivo,    setEditMotivo]    = useState('')
+  const [editComentario, setEditComentario] = useState('')
 
   const today = new Date().toISOString().split('T')[0]
 
-  const filteredTurnos = mockTurnos.filter(t => {
-    const matchesSearch =
-      t.departamento.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (t.empleadoNombre?.toLowerCase().includes(searchTerm.toLowerCase()) ?? false) ||
-      (t.huespedSaliente?.toLowerCase().includes(searchTerm.toLowerCase()) ?? false)
-    const matchesStatus = filterStatus === 'todos' || t.status === filterStatus
-    const matchesEmpleado = filterEmpleado === 'todos' || t.empleadoId === filterEmpleado
+  // ============================================================================
+  // CARGA DE DATOS
+  // ============================================================================
 
-    if (viewTab === 'proximos') {
-      return matchesSearch && matchesStatus && matchesEmpleado && t.status !== 'COMPLETADO' && t.status !== 'CANCELADO'
+  const cargarTurnos = useCallback(async () => {
+    setCargando(true)
+    try {
+      const params = new URLSearchParams()
+      if (filtroEmpleado !== 'todos') params.set('empleadoId', filtroEmpleado)
+      if (filtroDepto !== 'todos')    params.set('departamentoId', filtroDepto)
+
+      const res = await fetch(`/api/turnos?${params.toString()}`)
+      if (res.ok) setTurnos(await res.json())
+    } catch {}
+    finally { setCargando(false) }
+  }, [filtroEmpleado, filtroDepto])
+
+  useEffect(() => {
+    async function cargarFiltros() {
+      try {
+        const [eRes, dRes] = await Promise.all([fetch('/api/empleados'), fetch('/api/departamentos')])
+        if (eRes.ok) setEmpleados(await eRes.json())
+        if (dRes.ok) setDepartamentos(await dRes.json())
+      } catch {}
     }
-    if (viewTab === 'completados') {
-      return matchesSearch && matchesEmpleado && t.status === 'COMPLETADO'
-    }
-    return matchesSearch && matchesStatus && matchesEmpleado
+    cargarFiltros()
+  }, [])
+
+  useEffect(() => { cargarTurnos() }, [cargarTurnos])
+
+  // ============================================================================
+  // FILTRADO
+  // ============================================================================
+
+  const turnosFiltrados = turnos.filter(t => {
+    const matchSearch =
+      t.departamento.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      `${t.empleado.nombre} ${t.empleado.apellido}`.toLowerCase().includes(searchTerm.toLowerCase())
+
+    if (viewTab === 'proximos')    return matchSearch && t.estado === 'PENDIENTE_REVISION'
+    if (viewTab === 'completados') return matchSearch && (t.estado === 'APROBADO' || t.estado === 'PAGADO')
+    return matchSearch
   })
 
-  // Group by date for proximos view
-  const groupedTurnos = filteredTurnos.reduce<Record<string, TurnoLimpieza[]>>((acc, turno) => {
-    if (!acc[turno.fecha]) acc[turno.fecha] = []
-    acc[turno.fecha].push(turno)
+  // Agrupar por fecha para la vista Próximos
+  const grouped = turnosFiltrados.reduce<Record<string, Turno[]>>((acc, t) => {
+    const key = t.fecha.split('T')[0]
+    if (!acc[key]) acc[key] = []
+    acc[key].push(t)
     return acc
   }, {})
-  const sortedDates = Object.keys(groupedTurnos).sort()
+  const sortedDates = Object.keys(grouped).sort()
 
+  // Stats
   const stats = {
-    hoy: mockTurnos.filter(t => t.fecha === today && t.status !== 'CANCELADO').length,
-    pendientes: mockTurnos.filter(t => t.status === 'PENDIENTE').length,
-    enProgreso: mockTurnos.filter(t => t.status === 'EN_PROGRESO').length,
-    sinAsignar: mockTurnos.filter(t => t.status === 'PENDIENTE' && !t.empleadoId).length,
-    completadosHoy: mockTurnos.filter(t => t.fecha === today && t.status === 'COMPLETADO').length,
+    pendientes:  turnos.filter(t => t.estado === 'PENDIENTE_REVISION').length,
+    aprobados:   turnos.filter(t => t.estado === 'APROBADO').length,
+    conAlertas:  turnos.filter(t => t.alertas?.length > 0).length,
+    total:       turnos.length,
   }
 
-  const handleCreateTurno = () => {
-    console.log('Crear turno:', { formFecha, formHora, formDepto, formEmpleado, formHoras, formViaticos, formMotivo, formNotas })
-    setNewTurnoOpen(false)
-    setFormFecha('')
-    setFormNotas('')
+  // ============================================================================
+  // ACCIONES
+  // ============================================================================
+
+  async function aprobarTurno(turno: Turno) {
+    try {
+      await fetch(`/api/turnos/${turno.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ estado: 'APROBADO', motivo: 'Aprobación directa', usuarioId: 'admin-temp' }),
+      })
+      cargarTurnos()
+    } catch { alert('Error al aprobar el turno.') }
   }
+
+  async function guardarEdicion() {
+    if (!editTurno || !editMotivo) return
+    setGuardando(true)
+    try {
+      const [hE, mE] = editEntrada.split(':').map(Number)
+      const [hS, mS] = editSalida.split(':').map(Number)
+      const duracionHoras = ((hS * 60 + mS) - (hE * 60 + mE)) / 60
+
+      await fetch(`/api/turnos/${editTurno.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          horaEntrada: editEntrada,
+          horaSalida:  editSalida,
+          duracionHoras,
+          viaticos:       editViaticos,
+          esFeriadoFinde: editEsFinde,
+          tipo:           editTipo,
+          estado:         'APROBADO',
+          motivo:         editMotivo,
+          comentario:     editComentario,
+          usuarioId:      'admin-temp',
+        }),
+      })
+      setEditTurno(null)
+      cargarTurnos()
+    } catch { alert('Error al guardar.') }
+    finally { setGuardando(false) }
+  }
+
+  async function crearTurno() {
+    if (!formFecha || !formDepto) return
+    setGuardando(true)
+    try {
+      const res = await fetch('/api/turnos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          departamentoId: formDepto,
+          empleadoId:     formEmpleado || undefined,
+          fecha:          formFecha,
+          horaEntrada:    formEntrada,
+          horaSalida:     formSalida,
+          viaticos:       Number(formViaticos),
+          esFeriadoFinde: formEsFinde,
+          tipo:           formTipo,
+          comentarios:    formNotas,
+        }),
+      })
+      if (!res.ok) throw new Error()
+      setNewTurnoOpen(false)
+      setFormFecha(''); setFormNotas(''); setFormDepto(''); setFormEmpleado('')
+      cargarTurnos()
+    } catch { alert('Error al crear el turno.') }
+    finally { setGuardando(false) }
+  }
+
+  function abrirEdicion(turno: Turno) {
+    setEditTurno(turno)
+    setEditEntrada(turno.horaEntrada)
+    setEditSalida(turno.horaSalida)
+    setEditViaticos(Number(turno.viaticos))
+    setEditEsFinde(turno.esFeriadoFinde)
+    setEditTipo(turno.tipo)
+    setEditMotivo('')
+    setEditComentario('')
+  }
+
+  // ============================================================================
+  // RENDER — FILA DE TURNO (compartida entre vistas)
+  // ============================================================================
+
+  function TurnoCard({ turno }: { turno: Turno }) {
+    const cfg = estadoConfig[turno.estado]
+    const StatusIcon = cfg.icon
+    const tieneAlerta = turno.alertas?.length > 0
+
+    return (
+      <Card
+        className={cn(
+          'cursor-pointer hover:shadow-md transition-shadow',
+          turno.estado === 'PENDIENTE_REVISION' && tieneAlerta && 'border-amber-300',
+        )}
+        onClick={() => setDetailTurno(turno)}
+      >
+        <CardContent className="p-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-start gap-4 flex-1 min-w-0">
+              {/* Horario */}
+              <div className="text-center min-w-[60px]">
+                <p className="text-base font-bold text-gray-900">{turno.horaEntrada}</p>
+                <p className="text-xs text-gray-400">{turno.horaSalida}</p>
+                <p className="text-xs font-medium text-primary">{Number(turno.duracionHoras).toFixed(1)}hs</p>
+              </div>
+
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="font-semibold text-gray-900">{turno.departamento.nombre}</p>
+                  <Badge variant="secondary" className={cn(
+                    'text-xs',
+                    turno.tipo === 'MANTENIMIENTO' ? 'bg-blue-100 text-blue-800' : 'bg-slate-100 text-slate-700'
+                  )}>
+                    {turno.tipo === 'MANTENIMIENTO' ? 'Mantenimiento' : 'Limpieza'}
+                  </Badge>
+                  {turno.esFeriadoFinde && (
+                    <Badge variant="secondary" className="bg-purple-100 text-purple-800 text-xs">Finde/Feriado</Badge>
+                  )}
+                  {tieneAlerta && (
+                    <Badge variant="secondary" className="bg-amber-100 text-amber-800 text-xs">
+                      <AlertTriangle className="h-3 w-3 mr-1" />
+                      {turno.alertas[0] === 'DURACION_EXCEDE_LIMITE' ? 'Duración excesiva' : 'Horario inusual'}
+                    </Badge>
+                  )}
+                </div>
+                {turno.comentarios && (
+                  <p className="text-xs text-amber-700 bg-amber-50 px-2 py-1 rounded mt-1.5 inline-block">
+                    {turno.comentarios}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 flex-shrink-0">
+              {/* Empleado */}
+              <div className="flex items-center gap-2 text-sm">
+                <Avatar className="h-8 w-8">
+                  <AvatarFallback className="bg-primary/10 text-primary text-xs">
+                    {getInitials(turno.empleado.nombre, turno.empleado.apellido)}
+                  </AvatarFallback>
+                </Avatar>
+                <span className="text-gray-700 hidden sm:block">{turno.empleado.nombre}</span>
+              </div>
+
+              {/* Monto */}
+              <div className="text-right hidden sm:block">
+                <p className="text-sm font-semibold text-gray-900">{formatCurrency(Number(turno.montoTotal))}</p>
+                {Number(turno.viaticos) > 0 && (
+                  <p className="text-xs text-gray-400">+{formatCurrency(Number(turno.viaticos))} viát.</p>
+                )}
+              </div>
+
+              {/* Estado */}
+              <Badge className={cfg.color} variant="secondary">
+                <StatusIcon className="h-3 w-3 mr-1" />
+                {cfg.label}
+              </Badge>
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={e => e.stopPropagation()}>
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={e => { e.stopPropagation(); setDetailTurno(turno) }}>
+                    <Eye className="h-4 w-4 mr-2" /> Ver detalle
+                  </DropdownMenuItem>
+                  {turno.estado !== 'PAGADO' && (
+                    <DropdownMenuItem onClick={e => { e.stopPropagation(); abrirEdicion(turno) }}>
+                      <Edit className="h-4 w-4 mr-2" /> Editar
+                    </DropdownMenuItem>
+                  )}
+                  {turno.estado === 'PENDIENTE_REVISION' && (
+                    <DropdownMenuItem onClick={e => { e.stopPropagation(); aprobarTurno(turno) }}
+                      className="text-green-600">
+                      <CheckCircle2 className="h-4 w-4 mr-2" /> Aprobar
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  // ============================================================================
+  // RENDER PRINCIPAL
+  // ============================================================================
 
   return (
     <div className="space-y-6">
@@ -348,307 +385,136 @@ export default function TurnosPage() {
           <p className="text-gray-500">Coordiná y seguí los turnos de limpieza por departamento</p>
         </div>
         <Button onClick={() => setNewTurnoOpen(true)}>
-          <Plus className="h-4 w-4 mr-2" />
-          Nuevo Turno
+          <Plus className="h-4 w-4 mr-2" /> Nuevo Turno
         </Button>
       </div>
 
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-100 rounded-lg">
-                <Calendar className="h-5 w-5 text-blue-600" />
+        {[
+          { label: 'Total turnos',  valor: stats.total,      color: 'bg-blue-100',   icon: Calendar,      iconColor: 'text-blue-600' },
+          { label: 'Por revisar',   valor: stats.pendientes, color: 'bg-yellow-100', icon: Clock,         iconColor: 'text-yellow-600' },
+          { label: 'Aprobados',     valor: stats.aprobados,  color: 'bg-green-100',  icon: CheckCircle2,  iconColor: 'text-green-600' },
+          { label: 'Con alertas',   valor: stats.conAlertas, color: 'bg-red-100',    icon: AlertCircle,   iconColor: 'text-red-500' },
+        ].map(({ label, valor, color, icon: Icon, iconColor }) => (
+          <Card key={label}>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className={`p-2 ${color} rounded-lg`}>
+                  <Icon className={`h-5 w-5 ${iconColor}`} />
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">{label}</p>
+                  <p className={`text-2xl font-bold ${valor > 0 && label === 'Con alertas' ? 'text-red-500' : ''}`}>{valor}</p>
+                </div>
               </div>
-              <div>
-                <p className="text-sm text-gray-500">Turnos hoy</p>
-                <p className="text-2xl font-bold">{stats.hoy}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-yellow-100 rounded-lg">
-                <Clock className="h-5 w-5 text-yellow-600" />
-              </div>
-              <div>
-                <p className="text-sm text-gray-500">Pendientes</p>
-                <p className="text-2xl font-bold text-yellow-600">{stats.pendientes}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-100 rounded-lg">
-                <Sparkles className="h-5 w-5 text-blue-600" />
-              </div>
-              <div>
-                <p className="text-sm text-gray-500">En progreso</p>
-                <p className="text-2xl font-bold text-blue-600">{stats.enProgreso}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-red-100 rounded-lg">
-                <AlertCircle className="h-5 w-5 text-red-500" />
-              </div>
-              <div>
-                <p className="text-sm text-gray-500">Sin asignar</p>
-                <p className="text-2xl font-bold text-red-500">{stats.sinAsignar}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        ))}
       </div>
 
-      {/* Alerta turnos sin asignar */}
-      {stats.sinAsignar > 0 && (
-        <Card className="border-red-200 bg-red-50">
+      {/* Alerta turnos con problemas */}
+      {stats.conAlertas > 0 && (
+        <Card className="border-amber-200 bg-amber-50">
           <CardContent className="p-4 flex items-center gap-4">
-            <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0" />
+            <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0" />
             <div className="flex-1">
-              <p className="font-medium text-red-800">
-                {stats.sinAsignar} turno{stats.sinAsignar > 1 ? 's' : ''} sin empleado asignado
+              <p className="font-medium text-amber-800">
+                {stats.conAlertas} turno{stats.conAlertas > 1 ? 's' : ''} con alertas que requieren revisión
               </p>
-              <p className="text-sm text-red-700">Asigná un empleado para que puedan coordinarse</p>
+              <p className="text-sm text-amber-700">Revisá los turnos con duración excesiva u horario inusual</p>
             </div>
+            <Button size="sm" variant="outline" className="border-amber-300 text-amber-700"
+              onClick={() => setViewTab('proximos')}>
+              Ver turnos
+            </Button>
           </CardContent>
         </Card>
       )}
 
       {/* Tabs */}
       <div className="flex gap-2 border-b">
-        {(['proximos', 'completados', 'todos'] as const).map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setViewTab(tab)}
+        {([
+          { key: 'proximos',    label: `Por revisar (${stats.pendientes})` },
+          { key: 'completados', label: 'Completados' },
+          { key: 'todos',       label: 'Todos' },
+        ] as const).map(({ key, label }) => (
+          <button key={key} onClick={() => setViewTab(key)}
             className={cn(
-              'px-4 py-2 font-medium border-b-2 transition-colors capitalize',
-              viewTab === tab
-                ? 'border-primary text-primary'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
-            )}
-          >
-            {tab === 'proximos' ? 'Próximos' : tab === 'completados' ? 'Completados' : 'Todos'}
+              'px-4 py-2 font-medium border-b-2 transition-colors',
+              viewTab === key ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700'
+            )}>
+            {label}
           </button>
         ))}
       </div>
 
-      {/* Filters */}
+      {/* Filtros */}
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <Input
-            placeholder="Buscar por depto, empleado o huésped..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-9"
-          />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <Input placeholder="Buscar por depto o empleado..." value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)} className="pl-9" />
         </div>
-        {viewTab !== 'completados' && (
-          <Select value={filterStatus} onValueChange={setFilterStatus}>
-            <SelectTrigger className="w-full sm:w-[160px]">
-              <SelectValue placeholder="Estado" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todos">Todos los estados</SelectItem>
-              {Object.entries(statusConfig).map(([key, { label }]) => (
-                <SelectItem key={key} value={key}>{label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
-        <Select value={filterEmpleado} onValueChange={setFilterEmpleado}>
+        <Select value={filtroEmpleado} onValueChange={setFiltroEmpleado}>
           <SelectTrigger className="w-full sm:w-[180px]">
             <SelectValue placeholder="Empleado" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="todos">Todos los empleados</SelectItem>
-            {mockEmpleadosLimpieza.map(emp => (
-              <SelectItem key={emp.id} value={emp.id}>{emp.nombre}</SelectItem>
+            {empleados.map(e => (
+              <SelectItem key={e.id} value={e.id}>{e.nombre} {e.apellido}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={filtroDepto} onValueChange={setFiltroDepto}>
+          <SelectTrigger className="w-full sm:w-[180px]">
+            <SelectValue placeholder="Departamento" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="todos">Todos los deptos</SelectItem>
+            {departamentos.map(d => (
+              <SelectItem key={d.id} value={d.id}>{d.nombre}</SelectItem>
             ))}
           </SelectContent>
         </Select>
       </div>
 
-      {/* Content: grouped by date for proximos, table for completados/todos */}
-      {viewTab === 'proximos' ? (
+      {/* Contenido */}
+      {cargando ? (
+        <div className="flex justify-center py-20">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+        </div>
+      ) : viewTab === 'proximos' ? (
+        // Vista agrupada por fecha
         <div className="space-y-6">
           {sortedDates.length === 0 ? (
             <Card>
               <CardContent className="p-10 text-center">
                 <CheckCircle2 className="h-12 w-12 text-green-300 mx-auto mb-3" />
-                <p className="text-gray-500">No hay turnos próximos</p>
+                <p className="text-gray-500">No hay turnos pendientes de revisión</p>
               </CardContent>
             </Card>
-          ) : (
-            sortedDates.map((fecha) => (
-              <div key={fecha}>
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="flex items-center gap-2">
-                    <Calendar className="h-4 w-4 text-gray-400" />
-                    <h2 className="font-semibold text-gray-700">{formatDate(fecha)}</h2>
-                    <span className="text-gray-400 text-sm">
-                      {new Date(fecha + 'T00:00:00').toLocaleDateString('es-AR', { day: '2-digit', month: 'long' })}
-                    </span>
-                  </div>
-                  <Badge variant="secondary" className="text-xs">
-                    {groupedTurnos[fecha].length} turno{groupedTurnos[fecha].length > 1 ? 's' : ''}
-                  </Badge>
-                </div>
-
-                <div className="space-y-3">
-                  {groupedTurnos[fecha].map((turno) => {
-                    const StatusIcon = statusConfig[turno.status].icon
-                    return (
-                      <Card
-                        key={turno.id}
-                        className={cn(
-                          'cursor-pointer hover:shadow-md transition-shadow',
-                          turno.status === 'EN_PROGRESO' && 'border-blue-300 bg-blue-50/30',
-                          !turno.empleadoId && 'border-red-200'
-                        )}
-                        onClick={() => setDetailTurno(turno)}
-                      >
-                        <CardContent className="p-4">
-                          <div className="flex items-start justify-between gap-4">
-                            <div className="flex items-start gap-4 flex-1 min-w-0">
-                              {/* Hora */}
-                              <div className="text-center min-w-[50px]">
-                                <p className="text-lg font-bold text-gray-900">{turno.horaInicio}</p>
-                                <p className="text-xs text-gray-400">{turno.horas}hs</p>
-                              </div>
-
-                              <div className="flex-1 min-w-0">
-                                {/* Departamento */}
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <p className="font-semibold text-gray-900">{turno.departamento}</p>
-                                  <Badge className={motivoConfig[turno.motivoTurno].color} variant="secondary">
-                                    {motivoConfig[turno.motivoTurno].label}
-                                  </Badge>
-                                  {turno.esFindeFeriado && (
-                                    <Badge variant="secondary" className="bg-purple-100 text-purple-800">
-                                      Finde/Feriado
-                                    </Badge>
-                                  )}
-                                </div>
-
-                                {/* Huéspedes */}
-                                {(turno.huespedSaliente || turno.huespedEntrante) && (
-                                  <div className="flex items-center gap-2 mt-1 text-sm text-gray-500">
-                                    {turno.huespedSaliente && (
-                                      <span className="flex items-center gap-1">
-                                        <ArrowRight className="h-3 w-3 text-red-400" />
-                                        Sale: {turno.huespedSaliente}
-                                      </span>
-                                    )}
-                                    {turno.huespedSaliente && turno.huespedEntrante && <span>·</span>}
-                                    {turno.huespedEntrante && (
-                                      <span className="flex items-center gap-1">
-                                        <ArrowRight className="h-3 w-3 text-green-500" />
-                                        Entra: {turno.huespedEntrante}
-                                      </span>
-                                    )}
-                                  </div>
-                                )}
-
-                                {/* Notas */}
-                                {turno.notas && (
-                                  <p className="text-xs text-amber-700 bg-amber-50 px-2 py-1 rounded mt-1.5 inline-block">
-                                    {turno.notas}
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-
-                            <div className="flex items-center gap-4 flex-shrink-0">
-                              {/* Empleado */}
-                              {turno.empleadoNombre ? (
-                                <div className="flex items-center gap-2 text-sm">
-                                  <Avatar className="h-8 w-8">
-                                    <AvatarFallback className="bg-primary/10 text-primary text-xs">
-                                      {getInitials(turno.empleadoNombre)}
-                                    </AvatarFallback>
-                                  </Avatar>
-                                  <span className="text-gray-700 hidden sm:block">{turno.empleadoNombre.split(' ')[0]}</span>
-                                </div>
-                              ) : (
-                                <Badge variant="secondary" className="bg-red-100 text-red-700">
-                                  Sin asignar
-                                </Badge>
-                              )}
-
-                              {/* Monto */}
-                              <div className="text-right hidden sm:block">
-                                <p className="text-sm font-semibold text-gray-900">
-                                  {formatCurrency(turno.horas * turno.precioHora + turno.viaticos)}
-                                </p>
-                                {turno.viaticos > 0 && (
-                                  <p className="text-xs text-gray-400">
-                                    +{formatCurrency(turno.viaticos)} viát.
-                                  </p>
-                                )}
-                              </div>
-
-                              {/* Status */}
-                              <Badge className={statusConfig[turno.status].color} variant="secondary">
-                                <StatusIcon className="h-3 w-3 mr-1" />
-                                {statusConfig[turno.status].label}
-                              </Badge>
-
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-8 w-8"
-                                    onClick={(e) => e.stopPropagation()}
-                                  >
-                                    <MoreHorizontal className="h-4 w-4" />
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                  <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setDetailTurno(turno) }}>
-                                    <Eye className="h-4 w-4 mr-2" />
-                                    Ver detalle
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem>
-                                    <Edit className="h-4 w-4 mr-2" />
-                                    Editar
-                                  </DropdownMenuItem>
-                                  {turno.status === 'PENDIENTE' && (
-                                    <DropdownMenuItem>
-                                      <CheckCircle2 className="h-4 w-4 mr-2 text-green-600" />
-                                      Marcar completado
-                                    </DropdownMenuItem>
-                                  )}
-                                  <DropdownMenuSeparator />
-                                  <DropdownMenuItem className="text-red-600">
-                                    <Trash2 className="h-4 w-4 mr-2" />
-                                    Cancelar turno
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    )
-                  })}
-                </div>
+          ) : sortedDates.map(fecha => (
+            <div key={fecha}>
+              <div className="flex items-center gap-3 mb-3">
+                <Calendar className="h-4 w-4 text-gray-400" />
+                <h2 className="font-semibold text-gray-700">{formatDate(fecha)}</h2>
+                <span className="text-gray-400 text-sm">
+                  {new Date(fecha + 'T00:00:00').toLocaleDateString('es-AR', { day: '2-digit', month: 'long' })}
+                </span>
+                <Badge variant="secondary" className="text-xs">
+                  {grouped[fecha].length} turno{grouped[fecha].length > 1 ? 's' : ''}
+                </Badge>
               </div>
-            ))
-          )}
+              <div className="space-y-3">
+                {grouped[fecha].map(turno => <TurnoCard key={turno.id} turno={turno} />)}
+              </div>
+            </div>
+          ))}
         </div>
       ) : (
+        // Vista tabla para Completados y Todos
         <Card>
           <CardContent className="p-0">
             <Table>
@@ -658,316 +524,323 @@ export default function TurnosPage() {
                   <TableHead>Departamento</TableHead>
                   <TableHead>Empleado</TableHead>
                   <TableHead className="text-center">Horas</TableHead>
-                  <TableHead>Motivo</TableHead>
+                  <TableHead>Tipo</TableHead>
                   <TableHead>Estado</TableHead>
                   <TableHead className="text-right">Total</TableHead>
                   <TableHead className="w-[50px]"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredTurnos.length === 0 ? (
+                {turnosFiltrados.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={8} className="text-center py-10 text-gray-500">
                       <Sparkles className="h-10 w-10 mx-auto text-gray-300 mb-2" />
                       No hay turnos que coincidan con los filtros
                     </TableCell>
                   </TableRow>
-                ) : (
-                  filteredTurnos.map((turno) => {
-                    const StatusIcon = statusConfig[turno.status].icon
-                    return (
-                      <TableRow key={turno.id} className="group">
-                        <TableCell>
-                          <div>
-                            <p className="font-medium">{formatDate(turno.fecha)}</p>
-                            <p className="text-xs text-gray-400">{turno.horaInicio}</p>
-                          </div>
-                        </TableCell>
-                        <TableCell className="font-medium">{turno.departamento}</TableCell>
-                        <TableCell>
-                          {turno.empleadoNombre ? (
-                            <div className="flex items-center gap-2">
-                              <Avatar className="h-7 w-7">
-                                <AvatarFallback className="bg-primary/10 text-primary text-xs">
-                                  {getInitials(turno.empleadoNombre)}
-                                </AvatarFallback>
-                              </Avatar>
-                              <span className="text-sm">{turno.empleadoNombre}</span>
-                            </div>
-                          ) : (
-                            <Badge variant="secondary" className="bg-red-100 text-red-700 text-xs">
-                              Sin asignar
-                            </Badge>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-center">{turno.horas}hs</TableCell>
-                        <TableCell>
-                          <Badge className={motivoConfig[turno.motivoTurno].color} variant="secondary">
-                            {motivoConfig[turno.motivoTurno].label}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Badge className={statusConfig[turno.status].color} variant="secondary">
-                            <StatusIcon className="h-3 w-3 mr-1" />
-                            {statusConfig[turno.status].label}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right font-medium">
-                          {formatCurrency(turno.horas * turno.precioHora + turno.viaticos)}
-                        </TableCell>
-                        <TableCell>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="icon" className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <MoreHorizontal className="h-4 w-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem onClick={() => setDetailTurno(turno)}>
-                                <Eye className="h-4 w-4 mr-2" />
-                                Ver detalle
+                ) : turnosFiltrados.map(turno => {
+                  const cfg = estadoConfig[turno.estado]
+                  const StatusIcon = cfg.icon
+                  return (
+                    <TableRow key={turno.id} className="group cursor-pointer" onClick={() => setDetailTurno(turno)}>
+                      <TableCell>
+                        <p className="font-medium">{formatDate(turno.fecha.split('T')[0])}</p>
+                        <p className="text-xs text-gray-400">{turno.horaEntrada} - {turno.horaSalida}</p>
+                      </TableCell>
+                      <TableCell className="font-medium">{turno.departamento.nombre}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Avatar className="h-7 w-7">
+                            <AvatarFallback className="bg-primary/10 text-primary text-xs">
+                              {getInitials(turno.empleado.nombre, turno.empleado.apellido)}
+                            </AvatarFallback>
+                          </Avatar>
+                          <span className="text-sm">{turno.empleado.nombre} {turno.empleado.apellido}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-center">{Number(turno.duracionHoras).toFixed(1)}hs</TableCell>
+                      <TableCell>
+                        <Badge variant="secondary" className={turno.tipo === 'MANTENIMIENTO' ? 'bg-blue-100 text-blue-800' : 'bg-slate-100 text-slate-700'}>
+                          {turno.tipo === 'MANTENIMIENTO' ? 'Mantenimiento' : 'Limpieza'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge className={cfg.color} variant="secondary">
+                          <StatusIcon className="h-3 w-3 mr-1" />{cfg.label}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right font-medium">
+                        {formatCurrency(Number(turno.montoTotal))}
+                      </TableCell>
+                      <TableCell>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon"
+                              className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                              onClick={e => e.stopPropagation()}>
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={e => { e.stopPropagation(); setDetailTurno(turno) }}>
+                              <Eye className="h-4 w-4 mr-2" /> Ver detalle
+                            </DropdownMenuItem>
+                            {turno.estado !== 'PAGADO' && (
+                              <DropdownMenuItem onClick={e => { e.stopPropagation(); abrirEdicion(turno) }}>
+                                <Edit className="h-4 w-4 mr-2" /> Editar
                               </DropdownMenuItem>
-                              <DropdownMenuItem>
-                                <Edit className="h-4 w-4 mr-2" />
-                                Editar
+                            )}
+                            {turno.estado === 'PENDIENTE_REVISION' && (
+                              <DropdownMenuItem onClick={e => { e.stopPropagation(); aprobarTurno(turno) }}
+                                className="text-green-600">
+                                <CheckCircle2 className="h-4 w-4 mr-2" /> Aprobar
                               </DropdownMenuItem>
-                              {turno.status === 'PENDIENTE' && (
-                                <DropdownMenuItem>
-                                  <CheckCircle2 className="h-4 w-4 mr-2 text-green-600" />
-                                  Marcar completado
-                                </DropdownMenuItem>
-                              )}
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })
-                )}
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
               </TableBody>
             </Table>
           </CardContent>
         </Card>
       )}
 
-      {/* New Turno Dialog */}
+      {/* ================================================================== */}
+      {/* MODAL: NUEVO TURNO                                                  */}
+      {/* ================================================================== */}
       <Dialog open={newTurnoOpen} onOpenChange={setNewTurnoOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Nuevo Turno de Limpieza</DialogTitle>
-            <DialogDescription>
-              Registrá un nuevo turno de limpieza para un departamento
-            </DialogDescription>
+            <DialogTitle>Nuevo Turno</DialogTitle>
+            <DialogDescription>Registrá un nuevo turno de limpieza o mantenimiento</DialogDescription>
           </DialogHeader>
-
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
-                <Label>Fecha</Label>
-                <Input
-                  type="date"
-                  value={formFecha}
-                  onChange={(e) => setFormFecha(e.target.value)}
-                  min={today}
-                />
+                <Label>Fecha *</Label>
+                <Input type="date" value={formFecha} onChange={e => setFormFecha(e.target.value)} />
               </div>
               <div className="space-y-2">
-                <Label>Hora inicio</Label>
-                <Input
-                  type="time"
-                  value={formHora}
-                  onChange={(e) => setFormHora(e.target.value)}
-                />
+                <Label>Tipo</Label>
+                <Select value={formTipo} onValueChange={v => setFormTipo(v as any)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="LIMPIEZA">Limpieza</SelectItem>
+                    <SelectItem value="MANTENIMIENTO">Mantenimiento</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
-
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Hora entrada</Label>
+                <Input type="time" value={formEntrada} onChange={e => setFormEntrada(e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Hora salida</Label>
+                <Input type="time" value={formSalida} onChange={e => setFormSalida(e.target.value)} />
+              </div>
+            </div>
             <div className="space-y-2">
-              <Label>Departamento</Label>
+              <Label>Departamento *</Label>
               <Select value={formDepto} onValueChange={setFormDepto}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar departamento" />
-                </SelectTrigger>
+                <SelectTrigger><SelectValue placeholder="Seleccionar departamento" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="1">Depto A1 - Palermo</SelectItem>
-                  <SelectItem value="2">Depto B2 - Recoleta</SelectItem>
-                  <SelectItem value="3">Depto C3 - Belgrano</SelectItem>
-                  <SelectItem value="4">Depto D4 - San Telmo</SelectItem>
-                  <SelectItem value="5">Depto E5 - Núñez</SelectItem>
-                  <SelectItem value="6">Depto F6 - Puerto Madero</SelectItem>
+                  {departamentos.map(d => <SelectItem key={d.id} value={d.id}>{d.nombre}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
-
             <div className="space-y-2">
               <Label>Empleado</Label>
               <Select value={formEmpleado} onValueChange={setFormEmpleado}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Asignar empleado (opcional)" />
-                </SelectTrigger>
+                <SelectTrigger><SelectValue placeholder="Seleccionar empleado" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="sin_asignar">Sin asignar</SelectItem>
-                  {mockEmpleadosLimpieza.map(emp => (
-                    <SelectItem key={emp.id} value={emp.id}>{emp.nombre}</SelectItem>
-                  ))}
+                  {empleados.map(e => <SelectItem key={e.id} value={e.id}>{e.nombre} {e.apellido}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
-
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
-                <Label>Horas estimadas</Label>
-                <Input
-                  type="number"
-                  step="0.5"
-                  min="1"
-                  max="12"
-                  value={formHoras}
-                  onChange={(e) => setFormHoras(e.target.value)}
-                />
+                <Label>Viáticos ($)</Label>
+                <Input type="number" min="0" step="500" value={formViaticos} onChange={e => setFormViaticos(e.target.value)} />
               </div>
               <div className="space-y-2">
-                <Label>Viáticos ($)</Label>
-                <Input
-                  type="number"
-                  step="500"
-                  min="0"
-                  value={formViaticos}
-                  onChange={(e) => setFormViaticos(e.target.value)}
-                />
+                <Label>Día</Label>
+                <Select value={formEsFinde ? 'finde' : 'normal'} onValueChange={v => setFormEsFinde(v === 'finde')}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="normal">Normal</SelectItem>
+                    <SelectItem value="finde">Finde / Feriado</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
-
-            <div className="space-y-2">
-              <Label>Motivo</Label>
-              <Select value={formMotivo} onValueChange={(v) => setFormMotivo(v as TurnoLimpieza['motivoTurno'])}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="checkout">Checkout de huésped</SelectItem>
-                  <SelectItem value="ingreso">Preparación para ingreso</SelectItem>
-                  <SelectItem value="mantenimiento">Post-mantenimiento</SelectItem>
-                  <SelectItem value="rutina">Limpieza de rutina</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
             <div className="space-y-2">
               <Label>Notas (opcional)</Label>
-              <Textarea
-                value={formNotas}
-                onChange={(e) => setFormNotas(e.target.value)}
-                placeholder="Instrucciones especiales, observaciones..."
-                rows={2}
-              />
+              <Textarea value={formNotas} onChange={e => setFormNotas(e.target.value)}
+                placeholder="Instrucciones especiales..." rows={2} />
             </div>
           </div>
-
           <DialogFooter>
-            <Button variant="outline" onClick={() => setNewTurnoOpen(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={handleCreateTurno} disabled={!formFecha || !formDepto}>
+            <Button variant="outline" onClick={() => setNewTurnoOpen(false)}>Cancelar</Button>
+            <Button onClick={crearTurno} disabled={!formFecha || !formDepto || guardando}>
               <Plus className="h-4 w-4 mr-2" />
-              Crear Turno
+              {guardando ? 'Creando...' : 'Crear Turno'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Detail Dialog */}
+      {/* ================================================================== */}
+      {/* MODAL: EDITAR TURNO                                                 */}
+      {/* ================================================================== */}
+      <Dialog open={!!editTurno} onOpenChange={v => !v && setEditTurno(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Editar Turno</DialogTitle>
+            <DialogDescription>{editTurno?.departamento.nombre}</DialogDescription>
+          </DialogHeader>
+          {editTurno && (
+            <div className="space-y-4">
+              {editTurno.alertas?.length > 0 && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                  <div className="flex items-center gap-2 text-amber-700 font-medium text-sm mb-1">
+                    <AlertTriangle className="h-4 w-4" /> Alerta detectada
+                  </div>
+                  <ul className="text-xs text-amber-600 list-disc list-inside">
+                    {editTurno.alertas.map(a => (
+                      <li key={a}>{a === 'DURACION_EXCEDE_LIMITE' ? 'Duración excede el límite del departamento' : 'Horario inusual'}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label>Hora entrada</Label>
+                  <Input type="time" value={editEntrada} onChange={e => setEditEntrada(e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Hora salida</Label>
+                  <Input type="time" value={editSalida} onChange={e => setEditSalida(e.target.value)} />
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-2">
+                  <Label>Viáticos ($)</Label>
+                  <Input type="number" min="0" value={editViaticos} onChange={e => setEditViaticos(Number(e.target.value))} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Tipo</Label>
+                  <Select value={editTipo} onValueChange={v => setEditTipo(v as any)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="LIMPIEZA">Limpieza</SelectItem>
+                      <SelectItem value="MANTENIMIENTO">Mantenimiento</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Día</Label>
+                  <Select value={editEsFinde ? 'finde' : 'normal'} onValueChange={v => setEditEsFinde(v === 'finde')}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="normal">Normal</SelectItem>
+                      <SelectItem value="finde">Finde / Feriado</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Motivo del cambio *</Label>
+                <Select value={editMotivo} onValueChange={setEditMotivo}>
+                  <SelectTrigger><SelectValue placeholder="Seleccionar..." /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Error de tipeo">Error de tipeo</SelectItem>
+                    <SelectItem value="Información incorrecta del empleado">Información incorrecta</SelectItem>
+                    <SelectItem value="Aprobación con corrección">Aprobación con corrección</SelectItem>
+                    <SelectItem value="Otro">Otro</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Comentario (opcional)</Label>
+                <Textarea value={editComentario} onChange={e => setEditComentario(e.target.value)}
+                  placeholder="Detalle adicional..." rows={2} />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditTurno(null)}>Cancelar</Button>
+            <Button onClick={guardarEdicion} disabled={!editMotivo || guardando}>
+              {guardando ? 'Guardando...' : 'Guardar y Aprobar'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ================================================================== */}
+      {/* MODAL: DETALLE                                                      */}
+      {/* ================================================================== */}
       {detailTurno && (
         <Dialog open={!!detailTurno} onOpenChange={() => setDetailTurno(null)}>
           <DialogContent className="max-w-md">
             <DialogHeader>
               <DialogTitle>Detalle del Turno</DialogTitle>
-              <DialogDescription>{detailTurno.departamento}</DialogDescription>
+              <DialogDescription>{detailTurno.departamento.nombre}</DialogDescription>
             </DialogHeader>
-
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div className="p-3 bg-gray-50 rounded-lg">
-                  <p className="text-gray-500 mb-0.5">Fecha y hora</p>
-                  <p className="font-semibold">{formatDate(detailTurno.fecha)} · {detailTurno.horaInicio}</p>
+                  <p className="text-gray-500 mb-0.5">Fecha</p>
+                  <p className="font-semibold">{formatDate(detailTurno.fecha.split('T')[0])}</p>
+                </div>
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <p className="text-gray-500 mb-0.5">Horario</p>
+                  <p className="font-semibold">{detailTurno.horaEntrada} - {detailTurno.horaSalida}</p>
+                </div>
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <p className="text-gray-500 mb-0.5">Empleado</p>
+                  <p className="font-semibold">{detailTurno.empleado.nombre} {detailTurno.empleado.apellido}</p>
                 </div>
                 <div className="p-3 bg-gray-50 rounded-lg">
                   <p className="text-gray-500 mb-0.5">Estado</p>
-                  <Badge className={statusConfig[detailTurno.status].color} variant="secondary">
-                    {statusConfig[detailTurno.status].label}
-                  </Badge>
-                </div>
-                <div className="p-3 bg-gray-50 rounded-lg">
-                  <p className="text-gray-500 mb-0.5">Horas</p>
-                  <p className="font-semibold">{detailTurno.horas}hs</p>
-                </div>
-                <div className="p-3 bg-gray-50 rounded-lg">
-                  <p className="text-gray-500 mb-0.5">Motivo</p>
-                  <Badge className={motivoConfig[detailTurno.motivoTurno].color} variant="secondary">
-                    {motivoConfig[detailTurno.motivoTurno].label}
+                  <Badge className={estadoConfig[detailTurno.estado].color} variant="secondary">
+                    {estadoConfig[detailTurno.estado].label}
                   </Badge>
                 </div>
               </div>
-
               <div className="p-3 bg-gray-50 rounded-lg text-sm space-y-2">
                 <p className="font-medium text-gray-700">Liquidación</p>
                 <div className="flex justify-between">
-                  <span className="text-gray-500">{detailTurno.horas}hs × {formatCurrency(detailTurno.precioHora)}/h</span>
-                  <span>{formatCurrency(detailTurno.horas * detailTurno.precioHora)}</span>
+                  <span className="text-gray-500">{Number(detailTurno.duracionHoras).toFixed(1)}hs × {formatCurrency(Number(detailTurno.precioHora))}/h</span>
+                  <span>{formatCurrency(Number(detailTurno.duracionHoras) * Number(detailTurno.precioHora))}</span>
                 </div>
-                {detailTurno.viaticos > 0 && (
+                {Number(detailTurno.viaticos) > 0 && (
                   <div className="flex justify-between">
                     <span className="text-gray-500">Viáticos</span>
-                    <span>{formatCurrency(detailTurno.viaticos)}</span>
-                  </div>
-                )}
-                {detailTurno.esFindeFeriado && (
-                  <div className="flex justify-between text-purple-700">
-                    <span>Recargo finde/feriado</span>
-                    <span>incluido</span>
+                    <span>{formatCurrency(Number(detailTurno.viaticos))}</span>
                   </div>
                 )}
                 <div className="flex justify-between font-semibold border-t pt-2">
                   <span>Total</span>
-                  <span className="text-green-600">
-                    {formatCurrency(detailTurno.horas * detailTurno.precioHora + detailTurno.viaticos)}
-                  </span>
+                  <span className="text-green-600">{formatCurrency(Number(detailTurno.montoTotal))}</span>
                 </div>
               </div>
-
-              {(detailTurno.huespedSaliente || detailTurno.huespedEntrante) && (
-                <div className="p-3 bg-gray-50 rounded-lg text-sm space-y-1">
-                  <p className="font-medium text-gray-700">Huéspedes</p>
-                  {detailTurno.huespedSaliente && (
-                    <p className="text-gray-600 flex items-center gap-1.5">
-                      <ArrowRight className="h-3 w-3 text-red-400" />
-                      Sale: <span className="font-medium">{detailTurno.huespedSaliente}</span>
-                    </p>
-                  )}
-                  {detailTurno.huespedEntrante && (
-                    <p className="text-gray-600 flex items-center gap-1.5">
-                      <ArrowRight className="h-3 w-3 text-green-500" />
-                      Entra: <span className="font-medium">{detailTurno.huespedEntrante}</span>
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {detailTurno.notas && (
+              {detailTurno.comentarios && (
                 <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm">
                   <p className="font-medium text-amber-800 mb-0.5">Notas</p>
-                  <p className="text-amber-700">{detailTurno.notas}</p>
+                  <p className="text-amber-700">{detailTurno.comentarios}</p>
                 </div>
               )}
             </div>
-
             <DialogFooter>
-              <Button variant="outline" onClick={() => setDetailTurno(null)}>
-                Cerrar
-              </Button>
-              {detailTurno.status === 'PENDIENTE' && (
-                <Button>
-                  <CheckCircle2 className="h-4 w-4 mr-2" />
-                  Marcar Completado
+              <Button variant="outline" onClick={() => setDetailTurno(null)}>Cerrar</Button>
+              {detailTurno.estado === 'PENDIENTE_REVISION' && (
+                <Button onClick={() => { aprobarTurno(detailTurno); setDetailTurno(null) }}>
+                  <Check className="h-4 w-4 mr-2" /> Aprobar
                 </Button>
               )}
             </DialogFooter>

@@ -1,9 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
+import prisma from '@/lib/db'
 
 // GET /api/empleados - Listar empleados (mock por ahora)
 export async function GET(request: NextRequest) {
-  // TODO: Conectar con Prisma cuando el schema esté listo
-  return NextResponse.json([])
+  try {
+    const empleados = await prisma.empleado.findMany({
+      where: { activo: true },
+      select: { id: true, nombre: true, apellido: true },
+      orderBy: { nombre: 'asc' },
+    })
+    return NextResponse.json(empleados)
+  } catch (error) {
+    return NextResponse.json({ error: 'Error al cargar empleados' }, { status: 500 })
+  }
 }
 
 // POST /api/empleados - Crear nuevo empleado
