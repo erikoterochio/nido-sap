@@ -23,8 +23,10 @@ interface FormData {
   nombre: string;
   departamento: string;
   fecha: string;
-  horaEntrada: string;
-  horaSalida: string;
+  horaEntradaH: string;
+  horaEntradaM: string;
+  horaSalidaH: string;
+  horaSalidaM: string;
   viaticos: string;
   comentarios: string;
   huboLavado: boolean;
@@ -34,12 +36,19 @@ const formInicial: FormData = {
   nombre: '',
   departamento: '',
   fecha: new Date().toISOString().split('T')[0],
-  horaEntrada: '',
-  horaSalida: '',
+  horaEntradaH: '',
+  horaEntradaM: '00',
+  horaSalidaH: '',
+  horaSalidaM: '00',
   viaticos: '',
   comentarios: '',
   huboLavado: false,
 };
+
+// Genera array de horas ["00","01",...,"23"]
+const HORAS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
+// Genera array de minutos ["00","15","30","45"]
+const MINUTOS = ['00', '15', '30', '45'];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -49,6 +58,11 @@ function calcularDuracion(entrada: string, salida: string): number | null {
   const [hS, mS] = salida.split(':').map(Number);
   const minutos = hS * 60 + mS - (hE * 60 + mE);
   return minutos > 0 ? minutos / 60 : null;
+}
+
+// Combina hora y minuto en string "HH:MM"
+function combinarHora(h: string, m: string): string {
+  return h && m ? `${h}:${m}` : '';
 }
 
 // ─── Componente principal ─────────────────────────────────────────────────────
@@ -65,8 +79,12 @@ export default function RegistrarTurno() {
   const limiteDepartamento: LimiteDepartamento | undefined =
     opciones?.limites?.find((l) => l.nombre === form.departamento);
 
+  // Combinar campos de hora para calcular duración
+  const horaEntrada = combinarHora(form.horaEntradaH, form.horaEntradaM);
+  const horaSalida = combinarHora(form.horaSalidaH, form.horaSalidaM);
+
   // Duración calculada en tiempo real
-  const duracion = calcularDuracion(form.horaEntrada, form.horaSalida);
+  const duracion = calcularDuracion(horaEntrada, horaSalida);
 
   // Límite efectivo: si marcó lavado y el depto lo permite, se suma 1 hora
   const limiteEfectivo = limiteDepartamento
@@ -141,8 +159,14 @@ export default function RegistrarTurno() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...form,
+          nombre: form.nombre,
+          departamento: form.departamento,
+          fecha: form.fecha,
+          horaEntrada,
+          horaSalida,
           viaticos: parseFloat(form.viaticos) || 0,
+          comentarios: form.comentarios,
+          huboLavado: form.huboLavado,
         }),
       });
 
@@ -207,7 +231,7 @@ export default function RegistrarTurno() {
 
   // ─── Formulario principal ──────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4">
+    <div className="min-h-screen bg-gray-50 py-8 px-5">
       <div className="max-w-md mx-auto">
         {/* Encabezado */}
         <div className="mb-6">
@@ -283,33 +307,68 @@ export default function RegistrarTurno() {
             />
           </div>
 
-          {/* Horas */}
-          <div className="grid grid-cols-2 gap-3">
+          {/* Horas — compatibles con iOS Safari */}
+          <div className="space-y-3">
+            {/* Hora entrada */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Hora entrada *
               </label>
-              <input
-                type="time"
-                name="horaEntrada"
-                value={form.horaEntrada}
-                onChange={handleChange}
-                required
-                className="w-full border border-gray-300 rounded-xl px-4 py-3 text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+              <div className="grid grid-cols-2 gap-2">
+                <select
+                  name="horaEntradaH"
+                  value={form.horaEntradaH}
+                  onChange={handleChange}
+                  required
+                  className="w-full border border-gray-300 rounded-xl px-4 py-3 text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Hora</option>
+                  {HORAS.map((h) => (
+                    <option key={h} value={h}>{h}hs</option>
+                  ))}
+                </select>
+                <select
+                  name="horaEntradaM"
+                  value={form.horaEntradaM}
+                  onChange={handleChange}
+                  className="w-full border border-gray-300 rounded-xl px-4 py-3 text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {MINUTOS.map((m) => (
+                    <option key={m} value={m}>{m}min</option>
+                  ))}
+                </select>
+              </div>
             </div>
+
+            {/* Hora salida */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Hora salida *
               </label>
-              <input
-                type="time"
-                name="horaSalida"
-                value={form.horaSalida}
-                onChange={handleChange}
-                required
-                className="w-full border border-gray-300 rounded-xl px-4 py-3 text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+              <div className="grid grid-cols-2 gap-2">
+                <select
+                  name="horaSalidaH"
+                  value={form.horaSalidaH}
+                  onChange={handleChange}
+                  required
+                  className="w-full border border-gray-300 rounded-xl px-4 py-3 text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Hora</option>
+                  {HORAS.map((h) => (
+                    <option key={h} value={h}>{h}hs</option>
+                  ))}
+                </select>
+                <select
+                  name="horaSalidaM"
+                  value={form.horaSalidaM}
+                  onChange={handleChange}
+                  className="w-full border border-gray-300 rounded-xl px-4 py-3 text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {MINUTOS.map((m) => (
+                    <option key={m} value={m}>{m}min</option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
 
