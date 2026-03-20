@@ -283,10 +283,10 @@ export default function RegistrarTurno() {
             </select>
 
             {limiteDepartamento && (
-              <p className="text-xs text-gray-400 mt-1">
-                Límite: {limiteDepartamento.limiteHoras} hs
+              <p className="text-sm text-gray-500 mt-2 font-medium">
+                ⏱ Límite: {limiteDepartamento.limiteHoras} hs
                 {limiteDepartamento.permiteExcederConLavado &&
-                  ' (puede extenderse si hubo lavado)'}
+                  ' · puede extenderse si hubo lavado'}
               </p>
             )}
           </div>

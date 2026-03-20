@@ -100,9 +100,10 @@ export async function POST(req: NextRequest) {
       const fechaDate = new Date(datos.fecha + 'T00:00:00');
       const mes = new Date(fechaDate.getFullYear(), fechaDate.getMonth(), 1);
 
-      await prisma.turno.create({
-        data: {
+    await prisma.turnoLimpieza.create({
+    data: {
           id: crypto.randomUUID(),
+          tipo: 'LIMPIEZA',  
           empleadoId: empleado.id,
           departamentoId: departamento.id,
           fecha: fechaDate,
