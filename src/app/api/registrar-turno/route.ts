@@ -70,7 +70,7 @@ export async function POST(req: NextRequest) {
       datos.fecha,                // Fecha del turno
       datos.horaEntrada,          // Hora de entrada
       datos.horaSalida,           // Hora de salida
-      duracionHoras.toFixed(1),   // Duración calculada (ej: "2.5")
+      duracionHoras.toFixed(1).replace('.', ','),   // Duración calculada (ej: "2,5")
       datos.viaticos || 0,        // Viáticos
       datos.huboLavado ? 'SÍ' : 'NO', // ¿Hubo lavado?
       datos.comentarios || '',    // Comentarios adicionales
