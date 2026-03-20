@@ -433,6 +433,7 @@ export default function RegistrarTurno() {
             <input
               type="number"
               name="viaticos"
+              inputMode="numeric"
               value={form.viaticos}
               onChange={handleChange}
               min="0"
