@@ -17,6 +17,8 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Settings } from 'lucide-react'
+import Link from 'next/link'
 
 // ============================================================================
 // TIPOS
@@ -332,9 +334,16 @@ export default function TurnosPage() {
           <h1 className="text-2xl font-bold text-gray-900">Turnos de Limpieza</h1>
           <p className="text-gray-500 text-sm">Coordiná y seguí los turnos del equipo</p>
         </div>
-        <Button onClick={() => setNewTurnoOpen(true)}>
-          <Plus className="h-4 w-4 mr-2" /> Cargar turno manual
-        </Button>
+        <div className="flex items-center gap-2">
+          <Link href="/operaciones/configuracion">
+            <Button variant="outline" size="sm">
+              <Settings className="h-4 w-4 mr-2" /> Configuración
+            </Button>
+          </Link>
+          <Button onClick={() => setNewTurnoOpen(true)}>
+            <Plus className="h-4 w-4 mr-2" /> Cargar turno manual
+          </Button>
+        </div>
       </div>
 
       {/* ------------------------------------------------------------------ */}

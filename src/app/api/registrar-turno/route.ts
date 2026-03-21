@@ -5,7 +5,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSheetsClient, SHEET_ID, HOJA_TURNOS } from '@/lib/google-sheets';
 import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({
+  datasources: {
+    db: {
+      url: process.env.DATABASE_URL,
+    },
+  },
+});
 
 export interface DatosTurno {
   nombre: string;
