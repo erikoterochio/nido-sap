@@ -49,7 +49,7 @@ export async function GET() {
       .filter((fila) => fila[0] && fila[1]) // necesitamos nombre y límite
       .map((fila) => ({
         nombre: String(fila[0]).trim(),
-        limiteHoras: parseFloat(String(fila[1])),
+        limiteHoras: parseFloat(String(fila[1]).replace(',', '.')),
         permiteExcederConLavado: String(fila[2] ?? '')
           .toLowerCase()
           .includes('hay que lavar'),
