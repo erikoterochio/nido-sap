@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Plus, Search, Sparkles, CheckCircle2, Clock, Calendar,
-  MoreHorizontal, Eye, Edit, AlertCircle, X, AlertTriangle, Check,
+  Plus, Search, CheckCircle2, Clock, AlertTriangle,
+  Eye, Edit, Check, X, Calendar, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -11,12 +11,12 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 
 // ============================================================================
 // TIPOS
@@ -59,19 +59,28 @@ function formatCurrency(amount: number) {
   return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(amount)
 }
 
-function formatDate(dateStr: string) {
-  const date = new Date(dateStr + 'T00:00:00')
-  const today = new Date(); today.setHours(0,0,0,0)
-  const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1)
-  const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1)
-  if (date.getTime() === today.getTime())     return 'Hoy'
-  if (date.getTime() === tomorrow.getTime())  return 'Mañana'
-  if (date.getTime() === yesterday.getTime()) return 'Ayer'
-  return date.toLocaleDateString('es-AR', { weekday: 'short', day: '2-digit', month: 'short' })
+function formatFecha(fechaStr: string) {
+  const fecha = new Date(fechaStr + 'T00:00:00')
+  return fecha.toLocaleDateString('es-AR', { weekday: 'short', day: '2-digit', month: 'short' })
 }
 
 function getInitials(nombre: string, apellido: string) {
   return `${nombre[0]}${apellido[0]}`.toUpperCase()
+}
+
+function getSemanaLabel(fecha: Date) {
+  const lunes = new Date(fecha)
+  const dia = lunes.getDay()
+  const diff = dia === 0 ? -6 : 1 - dia
+  lunes.setDate(lunes.getDate() + diff)
+  const domingo = new Date(lunes)
+  domingo.setDate(lunes.getDate() + 6)
+  const fmt = (d: Date) => d.toLocaleDateString('es-AR', { day: '2-digit', month: 'short' })
+  return `${fmt(lunes)} – ${fmt(domingo)}`
+}
+
+function getMesLabel(fecha: Date) {
+  return fecha.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' })
 }
 
 // ============================================================================
@@ -79,45 +88,93 @@ function getInitials(nombre: string, apellido: string) {
 // ============================================================================
 
 export default function TurnosPage() {
-  // --- Datos ---
-  const [turnos,       setTurnos]       = useState<Turno[]>([])
-  const [empleados,    setEmpleados]    = useState<Empleado[]>([])
+  // Datos
+  const [turnos,        setTurnos]        = useState<Turno[]>([])
+  const [empleados,     setEmpleados]     = useState<Empleado[]>([])
   const [departamentos, setDepartamentos] = useState<Departamento[]>([])
-  const [cargando,     setCargando]     = useState(true)
+  const [cargando,      setCargando]      = useState(true)
 
-  // --- Filtros ---
-  const [searchTerm,      setSearchTerm]      = useState('')
-  const [filtroEmpleado,  setFiltroEmpleado]  = useState('todos')
-  const [filtroDepto,     setFiltroDepto]     = useState('todos')
-  const [viewTab,         setViewTab]         = useState<'proximos' | 'completados' | 'todos'>('proximos')
+  // Filtros
+  const [searchTerm,        setSearchTerm]        = useState('')
+  const [filtroEmpleados,   setFiltroEmpleados]   = useState<string[]>([])
+  const [filtroDeptos,      setFiltroDeptos]      = useState<string[]>([])
+  const [modoFecha,         setModoFecha]         = useState<'semana' | 'mes'>('semana')
+  const [fechaRef,          setFechaRef]          = useState(new Date())
+  const [viewTab,           setViewTab]           = useState<'revisar' | 'aprobados' | 'todos'>('revisar')
+  const [showDatePicker,    setShowDatePicker]    = useState(false)
+  const [pickerAnio,        setPickerAnio]        = useState(new Date().getFullYear())
+  const [showEmpleadoFilter, setShowEmpleadoFilter] = useState(false)
+  const [showDeptoFilter,   setShowDeptoFilter]   = useState(false)
+  const [searchEmpleado,    setSearchEmpleado]    = useState('')
+  const [searchDepto,       setSearchDepto]       = useState('')
+  const [tempEmpleados,     setTempEmpleados]     = useState<string[]>([])
+  const [tempDeptos,        setTempDeptos]        = useState<string[]>([])
 
-  // --- Modales ---
-  const [detailTurno,   setDetailTurno]   = useState<Turno | null>(null)
-  const [editTurno,     setEditTurno]     = useState<Turno | null>(null)
-  const [newTurnoOpen,  setNewTurnoOpen]  = useState(false)
-  const [guardando,     setGuardando]     = useState(false)
+  // Modales
+  const [detailTurno,  setDetailTurno]  = useState<Turno | null>(null)
+  const [editTurno,    setEditTurno]    = useState<Turno | null>(null)
+  const [newTurnoOpen, setNewTurnoOpen] = useState(false)
+  const [guardando,    setGuardando]    = useState(false)
 
-  // --- Form nuevo turno ---
-  const [formFecha,     setFormFecha]     = useState('')
-  const [formEntrada,   setFormEntrada]   = useState('10:00')
-  const [formSalida,    setFormSalida]    = useState('14:00')
-  const [formDepto,     setFormDepto]     = useState('')
-  const [formEmpleado,  setFormEmpleado]  = useState('')
-  const [formViaticos,  setFormViaticos]  = useState('0')
-  const [formTipo,      setFormTipo]      = useState<'LIMPIEZA' | 'MANTENIMIENTO'>('LIMPIEZA')
-  const [formEsFinde,   setFormEsFinde]   = useState(false)
-  const [formNotas,     setFormNotas]     = useState('')
+  // Form nuevo turno
+  const [formFecha,    setFormFecha]    = useState('')
+  const [formEntrada,  setFormEntrada]  = useState('10:00')
+  const [formSalida,   setFormSalida]   = useState('14:00')
+  const [formDepto,    setFormDepto]    = useState('')
+  const [formEmpleado, setFormEmpleado] = useState('')
+  const [formViaticos, setFormViaticos] = useState('0')
+  const [formTipo,     setFormTipo]     = useState<'LIMPIEZA' | 'MANTENIMIENTO'>('LIMPIEZA')
+  const [formEsFinde,  setFormEsFinde]  = useState(false)
+  const [formNotas,    setFormNotas]    = useState('')
 
-  // --- Form edición ---
-  const [editEntrada,   setEditEntrada]   = useState('')
-  const [editSalida,    setEditSalida]    = useState('')
-  const [editViaticos,  setEditViaticos]  = useState(0)
-  const [editEsFinde,   setEditEsFinde]   = useState(false)
-  const [editTipo,      setEditTipo]      = useState<'LIMPIEZA' | 'MANTENIMIENTO'>('LIMPIEZA')
-  const [editMotivo,    setEditMotivo]    = useState('')
+  // Form edición
+  const [editEntrada,    setEditEntrada]    = useState('')
+  const [editSalida,     setEditSalida]     = useState('')
+  const [editViaticos,   setEditViaticos]   = useState(0)
+  const [editEsFinde,    setEditEsFinde]    = useState(false)
+  const [editTipo,       setEditTipo]       = useState<'LIMPIEZA' | 'MANTENIMIENTO'>('LIMPIEZA')
+  const [editMotivo,     setEditMotivo]     = useState('')
   const [editComentario, setEditComentario] = useState('')
 
-  const today = new Date().toISOString().split('T')[0]
+  // ============================================================================
+  // NAVEGACIÓN DE FECHA
+  // ============================================================================
+
+  function navAnterior() {
+    const nueva = new Date(fechaRef)
+    if (modoFecha === 'semana') nueva.setDate(nueva.getDate() - 7)
+    else nueva.setMonth(nueva.getMonth() - 1)
+    setFechaRef(nueva)
+  }
+
+  function navSiguiente() {
+    const nueva = new Date(fechaRef)
+    if (modoFecha === 'semana') nueva.setDate(nueva.getDate() + 7)
+    else nueva.setMonth(nueva.getMonth() + 1)
+    setFechaRef(nueva)
+  }
+
+  function getRangoFechas(): { desde: string; hasta: string } {
+    if (modoFecha === 'semana') {
+      const lunes = new Date(fechaRef)
+      const dia = lunes.getDay()
+      const diff = dia === 0 ? -6 : 1 - dia
+      lunes.setDate(lunes.getDate() + diff)
+      const domingo = new Date(lunes)
+      domingo.setDate(lunes.getDate() + 6)
+      return {
+        desde: lunes.toISOString().split('T')[0],
+        hasta: domingo.toISOString().split('T')[0],
+      }
+    } else {
+      const desde = new Date(fechaRef.getFullYear(), fechaRef.getMonth(), 1)
+      const hasta = new Date(fechaRef.getFullYear(), fechaRef.getMonth() + 1, 0)
+      return {
+        desde: desde.toISOString().split('T')[0],
+        hasta: hasta.toISOString().split('T')[0],
+      }
+    }
+  }
 
   // ============================================================================
   // CARGA DE DATOS
@@ -126,15 +183,18 @@ export default function TurnosPage() {
   const cargarTurnos = useCallback(async () => {
     setCargando(true)
     try {
+      const { desde, hasta } = getRangoFechas()
       const params = new URLSearchParams()
-      if (filtroEmpleado !== 'todos') params.set('empleadoId', filtroEmpleado)
-      if (filtroDepto !== 'todos')    params.set('departamentoId', filtroDepto)
+      params.set('fechaDesde', desde)
+      params.set('fechaHasta', hasta)
+      if (filtroEmpleados.length === 1) params.set('empleadoId', filtroEmpleados[0])
+      if (filtroDeptos.length === 1)    params.set('departamentoId', filtroDeptos[0])
 
       const res = await fetch(`/api/turnos?${params.toString()}`)
       if (res.ok) setTurnos(await res.json())
     } catch {}
     finally { setCargando(false) }
-  }, [filtroEmpleado, filtroDepto])
+  }, [fechaRef, modoFecha, filtroEmpleados, filtroDeptos])
 
   useEffect(() => {
     async function cargarFiltros() {
@@ -158,33 +218,25 @@ export default function TurnosPage() {
       t.departamento.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
       `${t.empleado.nombre} ${t.empleado.apellido}`.toLowerCase().includes(searchTerm.toLowerCase())
 
-    if (viewTab === 'proximos')    return matchSearch && t.estado === 'PENDIENTE_REVISION'
-    if (viewTab === 'completados') return matchSearch && (t.estado === 'APROBADO' || t.estado === 'PAGADO')
-    return matchSearch
+    const matchEmpleado = filtroEmpleados.length === 0 || filtroEmpleados.includes(t.empleadoId)
+    const matchDepto    = filtroDeptos.length === 0    || filtroDeptos.includes(t.departamentoId)
+
+    if (!matchSearch || !matchEmpleado || !matchDepto) return false
+
+    if (viewTab === 'revisar')   return t.estado === 'PENDIENTE_REVISION' || t.alertas?.length > 0
+    if (viewTab === 'aprobados') return t.estado === 'APROBADO' || t.estado === 'PAGADO'
+    return true
   })
 
-  // Agrupar por fecha para la vista Próximos
-  const grouped = turnosFiltrados.reduce<Record<string, Turno[]>>((acc, t) => {
-    const key = t.fecha.split('T')[0]
-    if (!acc[key]) acc[key] = []
-    acc[key].push(t)
-    return acc
-  }, {})
-  const sortedDates = Object.keys(grouped).sort()
-
-  // Stats
-  const stats = {
-    pendientes:  turnos.filter(t => t.estado === 'PENDIENTE_REVISION').length,
-    aprobados:   turnos.filter(t => t.estado === 'APROBADO').length,
-    conAlertas:  turnos.filter(t => t.alertas?.length > 0).length,
-    total:       turnos.length,
-  }
+  const countRevisar   = turnos.filter(t => t.estado === 'PENDIENTE_REVISION' || t.alertas?.length > 0).length
+  const countAprobados = turnos.filter(t => t.estado === 'APROBADO' || t.estado === 'PAGADO').length
 
   // ============================================================================
   // ACCIONES
   // ============================================================================
 
-  async function aprobarTurno(turno: Turno) {
+  async function aprobarTurno(turno: Turno, e?: React.MouseEvent) {
+    e?.stopPropagation()
     try {
       await fetch(`/api/turnos/${turno.id}`, {
         method: 'PATCH',
@@ -192,7 +244,7 @@ export default function TurnosPage() {
         body: JSON.stringify({ estado: 'APROBADO', motivo: 'Aprobación directa', usuarioId: 'admin-temp' }),
       })
       cargarTurnos()
-    } catch { alert('Error al aprobar el turno.') }
+    } catch { alert('Error al aprobar.') }
   }
 
   async function guardarEdicion() {
@@ -202,21 +254,14 @@ export default function TurnosPage() {
       const [hE, mE] = editEntrada.split(':').map(Number)
       const [hS, mS] = editSalida.split(':').map(Number)
       const duracionHoras = ((hS * 60 + mS) - (hE * 60 + mE)) / 60
-
       await fetch(`/api/turnos/${editTurno.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          horaEntrada: editEntrada,
-          horaSalida:  editSalida,
-          duracionHoras,
-          viaticos:       editViaticos,
-          esFeriadoFinde: editEsFinde,
-          tipo:           editTipo,
-          estado:         'APROBADO',
-          motivo:         editMotivo,
-          comentario:     editComentario,
-          usuarioId:      'admin-temp',
+          horaEntrada: editEntrada, horaSalida: editSalida, duracionHoras,
+          viaticos: editViaticos, esFeriadoFinde: editEsFinde, tipo: editTipo,
+          estado: 'APROBADO', motivo: editMotivo, comentario: editComentario,
+          usuarioId: 'admin-temp',
         }),
       })
       setEditTurno(null)
@@ -226,33 +271,28 @@ export default function TurnosPage() {
   }
 
   async function crearTurno() {
-    if (!formFecha || !formDepto) return
+    if (!formFecha || !formDepto || !formEmpleado) return
     setGuardando(true)
     try {
-      const res = await fetch('/api/turnos', {
+      await fetch('/api/turnos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          departamentoId: formDepto,
-          empleadoId:     formEmpleado || undefined,
-          fecha:          formFecha,
-          horaEntrada:    formEntrada,
-          horaSalida:     formSalida,
-          viaticos:       Number(formViaticos),
-          esFeriadoFinde: formEsFinde,
-          tipo:           formTipo,
-          comentarios:    formNotas,
+          departamentoId: formDepto, empleadoId: formEmpleado,
+          fecha: formFecha, horaEntrada: formEntrada, horaSalida: formSalida,
+          viaticos: Number(formViaticos), esFeriadoFinde: formEsFinde,
+          tipo: formTipo, comentarios: formNotas,
         }),
       })
-      if (!res.ok) throw new Error()
       setNewTurnoOpen(false)
       setFormFecha(''); setFormNotas(''); setFormDepto(''); setFormEmpleado('')
       cargarTurnos()
-    } catch { alert('Error al crear el turno.') }
+    } catch { alert('Error al crear.') }
     finally { setGuardando(false) }
   }
 
-  function abrirEdicion(turno: Turno) {
+  function abrirEdicion(turno: Turno, e?: React.MouseEvent) {
+    e?.stopPropagation()
     setEditTurno(turno)
     setEditEntrada(turno.horaEntrada)
     setEditSalida(turno.horaSalida)
@@ -263,263 +303,314 @@ export default function TurnosPage() {
     setEditComentario('')
   }
 
-  // ============================================================================
-  // RENDER — FILA DE TURNO (compartida entre vistas)
-  // ============================================================================
+  function toggleEmpleado(id: string) {
+    setFiltroEmpleados(prev => prev.includes(id) ? prev.filter(e => e !== id) : [...prev, id])
+  }
 
-  function TurnoCard({ turno }: { turno: Turno }) {
-    const cfg = estadoConfig[turno.estado]
-    const StatusIcon = cfg.icon
-    const tieneAlerta = turno.alertas?.length > 0
-
-    return (
-      <Card
-        className={cn(
-          'cursor-pointer hover:shadow-md transition-shadow',
-          turno.estado === 'PENDIENTE_REVISION' && tieneAlerta && 'border-amber-300',
-        )}
-        onClick={() => setDetailTurno(turno)}
-      >
-        <CardContent className="p-4">
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex items-start gap-4 flex-1 min-w-0">
-              {/* Horario */}
-              <div className="text-center min-w-[60px]">
-                <p className="text-base font-bold text-gray-900">{turno.horaEntrada}</p>
-                <p className="text-xs text-gray-400">{turno.horaSalida}</p>
-                <p className="text-xs font-medium text-primary">{Number(turno.duracionHoras).toFixed(1)}hs</p>
-              </div>
-
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <p className="font-semibold text-gray-900">{turno.departamento.nombre}</p>
-                  <Badge variant="secondary" className={cn(
-                    'text-xs',
-                    turno.tipo === 'MANTENIMIENTO' ? 'bg-blue-100 text-blue-800' : 'bg-slate-100 text-slate-700'
-                  )}>
-                    {turno.tipo === 'MANTENIMIENTO' ? 'Mantenimiento' : 'Limpieza'}
-                  </Badge>
-                  {turno.esFeriadoFinde && (
-                    <Badge variant="secondary" className="bg-purple-100 text-purple-800 text-xs">Finde/Feriado</Badge>
-                  )}
-                  {tieneAlerta && (
-                    <Badge variant="secondary" className="bg-amber-100 text-amber-800 text-xs">
-                      <AlertTriangle className="h-3 w-3 mr-1" />
-                      {turno.alertas[0] === 'DURACION_EXCEDE_LIMITE' ? 'Duración excesiva' : 'Horario inusual'}
-                    </Badge>
-                  )}
-                </div>
-                {turno.comentarios && (
-                  <p className="text-xs text-amber-700 bg-amber-50 px-2 py-1 rounded mt-1.5 inline-block">
-                    {turno.comentarios}
-                  </p>
-                )}
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3 flex-shrink-0">
-              {/* Empleado */}
-              <div className="flex items-center gap-2 text-sm">
-                <Avatar className="h-8 w-8">
-                  <AvatarFallback className="bg-primary/10 text-primary text-xs">
-                    {getInitials(turno.empleado.nombre, turno.empleado.apellido)}
-                  </AvatarFallback>
-                </Avatar>
-                <span className="text-gray-700 hidden sm:block">{turno.empleado.nombre}</span>
-              </div>
-
-              {/* Monto */}
-              <div className="text-right hidden sm:block">
-                <p className="text-sm font-semibold text-gray-900">{formatCurrency(Number(turno.montoTotal))}</p>
-                {Number(turno.viaticos) > 0 && (
-                  <p className="text-xs text-gray-400">+{formatCurrency(Number(turno.viaticos))} viát.</p>
-                )}
-              </div>
-
-              {/* Estado */}
-              <Badge className={cfg.color} variant="secondary">
-                <StatusIcon className="h-3 w-3 mr-1" />
-                {cfg.label}
-              </Badge>
-
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={e => e.stopPropagation()}>
-                    <MoreHorizontal className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={e => { e.stopPropagation(); setDetailTurno(turno) }}>
-                    <Eye className="h-4 w-4 mr-2" /> Ver detalle
-                  </DropdownMenuItem>
-                  {turno.estado !== 'PAGADO' && (
-                    <DropdownMenuItem onClick={e => { e.stopPropagation(); abrirEdicion(turno) }}>
-                      <Edit className="h-4 w-4 mr-2" /> Editar
-                    </DropdownMenuItem>
-                  )}
-                  {turno.estado === 'PENDIENTE_REVISION' && (
-                    <DropdownMenuItem onClick={e => { e.stopPropagation(); aprobarTurno(turno) }}
-                      className="text-green-600">
-                      <CheckCircle2 className="h-4 w-4 mr-2" /> Aprobar
-                    </DropdownMenuItem>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    )
+  function toggleDepto(id: string) {
+    setFiltroDeptos(prev => prev.includes(id) ? prev.filter(d => d !== id) : [...prev, id])
   }
 
   // ============================================================================
-  // RENDER PRINCIPAL
+  // RENDER
   // ============================================================================
 
+  const tabs = [
+    { key: 'revisar'   as const, label: 'Por revisar',  count: countRevisar,   icon: Clock },
+    { key: 'aprobados' as const, label: 'Aprobados',    count: countAprobados, icon: CheckCircle2 },
+    { key: 'todos'     as const, label: 'Todos',        count: turnos.length,  icon: null },
+  ]
+
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="space-y-4">
+
+      {/* ------------------------------------------------------------------ */}
+      {/* HEADER                                                               */}
+      {/* ------------------------------------------------------------------ */}
+      <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Turnos de Limpieza</h1>
-          <p className="text-gray-500">Coordiná y seguí los turnos de limpieza por departamento</p>
+          <p className="text-gray-500 text-sm">Coordiná y seguí los turnos del equipo</p>
         </div>
         <Button onClick={() => setNewTurnoOpen(true)}>
-          <Plus className="h-4 w-4 mr-2" /> Nuevo Turno
+          <Plus className="h-4 w-4 mr-2" /> Cargar turno manual
         </Button>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {[
-          { label: 'Total turnos',  valor: stats.total,      color: 'bg-blue-100',   icon: Calendar,      iconColor: 'text-blue-600' },
-          { label: 'Por revisar',   valor: stats.pendientes, color: 'bg-yellow-100', icon: Clock,         iconColor: 'text-yellow-600' },
-          { label: 'Aprobados',     valor: stats.aprobados,  color: 'bg-green-100',  icon: CheckCircle2,  iconColor: 'text-green-600' },
-          { label: 'Con alertas',   valor: stats.conAlertas, color: 'bg-red-100',    icon: AlertCircle,   iconColor: 'text-red-500' },
-        ].map(({ label, valor, color, icon: Icon, iconColor }) => (
-          <Card key={label}>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className={`p-2 ${color} rounded-lg`}>
-                  <Icon className={`h-5 w-5 ${iconColor}`} />
+      {/* ------------------------------------------------------------------ */}
+      {/* FILTROS                                                              */}
+      {/* ------------------------------------------------------------------ */}
+      <div className="flex flex-wrap gap-3 items-center">
+        {/* Buscador */}
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <Input placeholder="Buscar por depto o empleado..."
+            value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="pl-9" />
+        </div>
+
+        {/* Filtro fecha: modo + navegación */}
+        <div className="flex items-center gap-1 border border-gray-200 rounded-lg bg-white px-1 py-1">
+          <Popover>
+            <PopoverTrigger asChild>
+              <button className={cn('px-3 py-1.5 rounded-md text-sm font-medium transition-colors flex items-center gap-1',
+                modoFecha === 'semana' ? 'bg-primary text-white' : 'text-gray-600 hover:bg-gray-100')}
+                onClick={() => setModoFecha('semana')}>
+                Semana
+              </button>
+            </PopoverTrigger>
+          </Popover>
+          <Popover>
+            <PopoverTrigger asChild>
+              <button className={cn('px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
+                modoFecha === 'mes' ? 'bg-primary text-white' : 'text-gray-600 hover:bg-gray-100')}
+                onClick={() => setModoFecha('mes')}>
+                Mes
+              </button>
+            </PopoverTrigger>
+          </Popover>
+        </div>
+
+        <div className="flex items-center gap-1 border border-gray-200 rounded-lg bg-white px-1 py-1">
+          <button onClick={navAnterior} className="p-1.5 hover:bg-gray-100 rounded">
+            <ChevronLeft className="h-4 w-4 text-gray-600" />
+          </button>
+          <Popover open={showDatePicker} onOpenChange={setShowDatePicker}>
+            <PopoverTrigger asChild>
+              <button className="text-sm font-medium text-gray-700 min-w-[160px] text-center hover:bg-gray-50 px-2 py-1 rounded">
+                {modoFecha === 'semana' ? getSemanaLabel(fechaRef) : getMesLabel(fechaRef)}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-3" align="center">
+              {modoFecha === 'mes' ? (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between mb-2">
+                    <button onClick={() => setPickerAnio(a => a - 1)} className="p-1 hover:bg-gray-100 rounded">
+                      <ChevronLeft className="h-4 w-4" />
+                    </button>
+                    <span className="font-semibold text-sm">{pickerAnio}</span>
+                    <button onClick={() => setPickerAnio(a => a + 1)} className="p-1 hover:bg-gray-100 rounded">
+                      <ChevronRight className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1">
+                    {['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'].map((mes, i) => (
+                      <button key={mes} onClick={() => {
+                        const nueva = new Date(pickerAnio, i, 1)
+                        setFechaRef(nueva)
+                        setShowDatePicker(false)
+                      }}
+                        className={cn('px-2 py-1.5 rounded text-sm hover:bg-gray-100',
+                          fechaRef.getMonth() === i && fechaRef.getFullYear() === pickerAnio
+                            ? 'bg-primary text-white hover:bg-primary/90' : '')}>
+                        {mes}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <div>
-                  <p className="text-sm text-gray-500">{label}</p>
-                  <p className={`text-2xl font-bold ${valor > 0 && label === 'Con alertas' ? 'text-red-500' : ''}`}>{valor}</p>
+              ) : (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between mb-2">
+                    <button onClick={() => setPickerAnio(a => a - 1)} className="p-1 hover:bg-gray-100 rounded">
+                      <ChevronLeft className="h-4 w-4" />
+                    </button>
+                    <span className="font-semibold text-sm">{pickerAnio}</span>
+                    <button onClick={() => setPickerAnio(a => a + 1)} className="p-1 hover:bg-gray-100 rounded">
+                      <ChevronRight className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1">
+                    {Array.from({ length: 52 }, (_, i) => {
+                      const d = new Date(pickerAnio, 0, 1 + i * 7)
+                      const lunes = new Date(d)
+                      const dia = lunes.getDay()
+                      const diff = dia === 0 ? -6 : 1 - dia
+                      lunes.setDate(lunes.getDate() + diff)
+                      if (lunes.getFullYear() !== pickerAnio) return null
+                      const domingo = new Date(lunes); domingo.setDate(lunes.getDate() + 6)
+                      const fmt = (d: Date) => `${d.getDate()}/${d.getMonth()+1}`
+                      const isSelected = getSemanaLabel(fechaRef) === getSemanaLabel(lunes)
+                      return (
+                        <button key={i} onClick={() => { setFechaRef(new Date(lunes)); setShowDatePicker(false) }}
+                          className={cn('px-2 py-1 rounded text-xs hover:bg-gray-100 text-left',
+                            isSelected ? 'bg-primary text-white hover:bg-primary/90' : '')}>
+                          {fmt(lunes)}–{fmt(domingo)}
+                        </button>
+                      )
+                    }).filter(Boolean)}
+                  </div>
                 </div>
+              )}
+            </PopoverContent>
+          </Popover>
+          <button onClick={navSiguiente} className="p-1.5 hover:bg-gray-100 rounded">
+            <ChevronRight className="h-4 w-4 text-gray-600" />
+          </button>
+        </div>
+
+        {/* Filtro empleados */}
+        <Popover open={showEmpleadoFilter} onOpenChange={setShowEmpleadoFilter}>
+          <PopoverTrigger asChild>
+            <button className={cn(
+              'flex items-center gap-2 px-3 py-2 border rounded-lg text-sm bg-white hover:bg-gray-50 transition-colors',
+              filtroEmpleados.length > 0 ? 'border-primary text-primary' : 'border-gray-200 text-gray-600'
+            )}>
+              {filtroEmpleados.length === 0 ? 'Todos los empleados' : `${filtroEmpleados.length} empleado${filtroEmpleados.length > 1 ? 's' : ''}`}
+              <ChevronRight className={cn('h-4 w-4 transition-transform', showEmpleadoFilter && 'rotate-90')} />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="w-64 p-0" align="start">
+            <div className="p-2 border-b">
+              <div className="relative">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+                <input
+                  placeholder="Buscar empleado..."
+                  value={searchEmpleado}
+                  onChange={e => setSearchEmpleado(e.target.value)}
+                  className="w-full pl-7 pr-3 py-1.5 text-sm border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-primary"
+                />
               </div>
-            </CardContent>
-          </Card>
-        ))}
+            </div>
+            <div className="p-2 border-b flex gap-2">
+              <button onClick={() => setTempEmpleados(empleados.map(e => e.id))}
+                className="text-xs text-primary hover:underline">Todos</button>
+              <span className="text-gray-300">|</span>
+              <button onClick={() => setTempEmpleados([])}
+                className="text-xs text-gray-500 hover:underline">Ninguno</button>
+            </div>
+            <div className="max-h-48 overflow-auto p-1">
+              {empleados
+                .filter(e => `${e.nombre} ${e.apellido}`.toLowerCase().includes(searchEmpleado.toLowerCase()))
+                .map(e => (
+                  <label key={e.id} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer text-sm">
+                    <input type="checkbox"
+                      checked={tempEmpleados.includes(e.id)}
+                      onChange={() => setTempEmpleados(prev =>
+                        prev.includes(e.id) ? prev.filter(x => x !== e.id) : [...prev, e.id]
+                      )}
+                      className="rounded border-gray-300 text-primary"
+                    />
+                    {e.nombre} {e.apellido}
+                  </label>
+                ))}
+            </div>
+            <div className="p-2 border-t flex gap-2">
+              <Button size="sm" className="flex-1" onClick={() => {
+                setFiltroEmpleados(tempEmpleados)
+                setShowEmpleadoFilter(false)
+              }}>
+                Aplicar
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => {
+                setTempEmpleados(filtroEmpleados)
+                setShowEmpleadoFilter(false)
+              }}>
+                Cancelar
+              </Button>
+            </div>
+          </PopoverContent>
+        </Popover>
+
+        {/* Filtro deptos */}
+        <Popover open={showDeptoFilter} onOpenChange={setShowDeptoFilter}>
+          <PopoverTrigger asChild>
+            <button className={cn(
+              'flex items-center gap-2 px-3 py-2 border rounded-lg text-sm bg-white hover:bg-gray-50 transition-colors',
+              filtroDeptos.length > 0 ? 'border-primary text-primary' : 'border-gray-200 text-gray-600'
+            )}>
+              {filtroDeptos.length === 0 ? 'Todos los deptos' : `${filtroDeptos.length} depto${filtroDeptos.length > 1 ? 's' : ''}`}
+              <ChevronRight className={cn('h-4 w-4 transition-transform', showDeptoFilter && 'rotate-90')} />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent className="w-64 p-0" align="start">
+            <div className="p-2 border-b">
+              <div className="relative">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+                <input
+                  placeholder="Buscar departamento..."
+                  value={searchDepto}
+                  onChange={e => setSearchDepto(e.target.value)}
+                  className="w-full pl-7 pr-3 py-1.5 text-sm border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
+            </div>
+            <div className="p-2 border-b flex gap-2">
+              <button onClick={() => setTempDeptos(departamentos.map(d => d.id))}
+                className="text-xs text-primary hover:underline">Todos</button>
+              <span className="text-gray-300">|</span>
+              <button onClick={() => setTempDeptos([])}
+                className="text-xs text-gray-500 hover:underline">Ninguno</button>
+            </div>
+            <div className="max-h-48 overflow-auto p-1">
+              {departamentos
+                .filter(d => d.nombre.toLowerCase().includes(searchDepto.toLowerCase()))
+                .map(d => (
+                  <label key={d.id} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer text-sm">
+                    <input type="checkbox"
+                      checked={tempDeptos.includes(d.id)}
+                      onChange={() => setTempDeptos(prev =>
+                        prev.includes(d.id) ? prev.filter(x => x !== d.id) : [...prev, d.id]
+                      )}
+                      className="rounded border-gray-300 text-primary"
+                    />
+                    {d.nombre}
+                  </label>
+                ))}
+            </div>
+            <div className="p-2 border-t flex gap-2">
+              <Button size="sm" className="flex-1" onClick={() => {
+                setFiltroDeptos(tempDeptos)
+                setShowDeptoFilter(false)
+              }}>
+                Aplicar
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => {
+                setTempDeptos(filtroDeptos)
+                setShowDeptoFilter(false)
+              }}>
+                Cancelar
+              </Button>
+            </div>
+          </PopoverContent>
+        </Popover>
       </div>
 
-      {/* Alerta turnos con problemas */}
-      {stats.conAlertas > 0 && (
-        <Card className="border-amber-200 bg-amber-50">
-          <CardContent className="p-4 flex items-center gap-4">
-            <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0" />
-            <div className="flex-1">
-              <p className="font-medium text-amber-800">
-                {stats.conAlertas} turno{stats.conAlertas > 1 ? 's' : ''} con alertas que requieren revisión
-              </p>
-              <p className="text-sm text-amber-700">Revisá los turnos con duración excesiva u horario inusual</p>
-            </div>
-            <Button size="sm" variant="outline" className="border-amber-300 text-amber-700"
-              onClick={() => setViewTab('proximos')}>
-              Ver turnos
-            </Button>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Tabs */}
-      <div className="flex gap-2 border-b">
-        {([
-          { key: 'proximos',    label: `Por revisar (${stats.pendientes})` },
-          { key: 'completados', label: 'Completados' },
-          { key: 'todos',       label: 'Todos' },
-        ] as const).map(({ key, label }) => (
+      {/* ------------------------------------------------------------------ */}
+      {/* TABS                                                                 */}
+      {/* ------------------------------------------------------------------ */}
+      <div className="flex gap-1 border-b border-gray-200">
+        {tabs.map(({ key, label, count, icon: Icon }) => (
           <button key={key} onClick={() => setViewTab(key)}
             className={cn(
-              'px-4 py-2 font-medium border-b-2 transition-colors',
-              viewTab === key ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700'
+              'flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors',
+              viewTab === key
+                ? 'border-primary text-primary'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
             )}>
+            {Icon && <Icon className="h-4 w-4" />}
             {label}
+            <span className={cn(
+              'px-1.5 py-0.5 rounded-full text-xs font-semibold',
+              viewTab === key ? 'bg-primary/10 text-primary' : 'bg-gray-100 text-gray-500'
+            )}>
+              {count}
+            </span>
           </button>
         ))}
       </div>
 
-      {/* Filtros */}
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <Input placeholder="Buscar por depto o empleado..." value={searchTerm}
-            onChange={e => setSearchTerm(e.target.value)} className="pl-9" />
-        </div>
-        <Select value={filtroEmpleado} onValueChange={setFiltroEmpleado}>
-          <SelectTrigger className="w-full sm:w-[180px]">
-            <SelectValue placeholder="Empleado" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="todos">Todos los empleados</SelectItem>
-            {empleados.map(e => (
-              <SelectItem key={e.id} value={e.id}>{e.nombre} {e.apellido}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={filtroDepto} onValueChange={setFiltroDepto}>
-          <SelectTrigger className="w-full sm:w-[180px]">
-            <SelectValue placeholder="Departamento" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="todos">Todos los deptos</SelectItem>
-            {departamentos.map(d => (
-              <SelectItem key={d.id} value={d.id}>{d.nombre}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      {/* Contenido */}
-      {cargando ? (
-        <div className="flex justify-center py-20">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
-        </div>
-      ) : viewTab === 'proximos' ? (
-        // Vista agrupada por fecha
-        <div className="space-y-6">
-          {sortedDates.length === 0 ? (
-            <Card>
-              <CardContent className="p-10 text-center">
-                <CheckCircle2 className="h-12 w-12 text-green-300 mx-auto mb-3" />
-                <p className="text-gray-500">No hay turnos pendientes de revisión</p>
-              </CardContent>
-            </Card>
-          ) : sortedDates.map(fecha => (
-            <div key={fecha}>
-              <div className="flex items-center gap-3 mb-3">
-                <Calendar className="h-4 w-4 text-gray-400" />
-                <h2 className="font-semibold text-gray-700">{formatDate(fecha)}</h2>
-                <span className="text-gray-400 text-sm">
-                  {new Date(fecha + 'T00:00:00').toLocaleDateString('es-AR', { day: '2-digit', month: 'long' })}
-                </span>
-                <Badge variant="secondary" className="text-xs">
-                  {grouped[fecha].length} turno{grouped[fecha].length > 1 ? 's' : ''}
-                </Badge>
-              </div>
-              <div className="space-y-3">
-                {grouped[fecha].map(turno => <TurnoCard key={turno.id} turno={turno} />)}
-              </div>
+      {/* ------------------------------------------------------------------ */}
+      {/* TABLA                                                                */}
+      {/* ------------------------------------------------------------------ */}
+      <Card>
+        <CardContent className="p-0">
+          {cargando ? (
+            <div className="flex justify-center py-16">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
             </div>
-          ))}
-        </div>
-      ) : (
-        // Vista tabla para Completados y Todos
-        <Card>
-          <CardContent className="p-0">
+          ) : (
             <Table>
               <TableHeader>
-                <TableRow>
+                <TableRow className="bg-gray-50">
                   <TableHead>Fecha</TableHead>
                   <TableHead>Departamento</TableHead>
                   <TableHead>Empleado</TableHead>
@@ -527,24 +618,27 @@ export default function TurnosPage() {
                   <TableHead>Tipo</TableHead>
                   <TableHead>Estado</TableHead>
                   <TableHead className="text-right">Total</TableHead>
-                  <TableHead className="w-[50px]"></TableHead>
+                  <TableHead className="text-center w-[120px]">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {turnosFiltrados.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-10 text-gray-500">
-                      <Sparkles className="h-10 w-10 mx-auto text-gray-300 mb-2" />
-                      No hay turnos que coincidan con los filtros
+                    <TableCell colSpan={8} className="text-center py-12 text-gray-400">
+                      No hay turnos para el período seleccionado
                     </TableCell>
                   </TableRow>
                 ) : turnosFiltrados.map(turno => {
                   const cfg = estadoConfig[turno.estado]
                   const StatusIcon = cfg.icon
+                  const tieneAlerta = turno.alertas?.length > 0
+
                   return (
-                    <TableRow key={turno.id} className="group cursor-pointer" onClick={() => setDetailTurno(turno)}>
+                    <TableRow key={turno.id}
+                      className="cursor-pointer hover:bg-gray-50"
+                      onClick={() => setDetailTurno(turno)}>
                       <TableCell>
-                        <p className="font-medium">{formatDate(turno.fecha.split('T')[0])}</p>
+                        <p className="font-medium text-gray-900">{formatFecha(turno.fecha.split('T')[0])}</p>
                         <p className="text-xs text-gray-400">{turno.horaEntrada} - {turno.horaSalida}</p>
                       </TableCell>
                       <TableCell className="font-medium">{turno.departamento.nombre}</TableCell>
@@ -560,9 +654,18 @@ export default function TurnosPage() {
                       </TableCell>
                       <TableCell className="text-center">{Number(turno.duracionHoras).toFixed(1)}hs</TableCell>
                       <TableCell>
-                        <Badge variant="secondary" className={turno.tipo === 'MANTENIMIENTO' ? 'bg-blue-100 text-blue-800' : 'bg-slate-100 text-slate-700'}>
-                          {turno.tipo === 'MANTENIMIENTO' ? 'Mantenimiento' : 'Limpieza'}
-                        </Badge>
+                        <div className="flex flex-col gap-1">
+                          <Badge variant="secondary" className={turno.tipo === 'MANTENIMIENTO'
+                            ? 'bg-blue-100 text-blue-800 w-fit' : 'bg-slate-100 text-slate-700 w-fit'}>
+                            {turno.tipo === 'MANTENIMIENTO' ? 'Mantenimiento' : 'Limpieza'}
+                          </Badge>
+                          {tieneAlerta && (
+                            <Badge variant="secondary" className="bg-amber-100 text-amber-800 w-fit text-xs">
+                              <AlertTriangle className="h-3 w-3 mr-1" />
+                              {turno.alertas[0] === 'DURACION_EXCEDE_LIMITE' ? 'Duración excesiva' : 'Horario inusual'}
+                            </Badge>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell>
                         <Badge className={cfg.color} variant="secondary">
@@ -573,40 +676,39 @@ export default function TurnosPage() {
                         {formatCurrency(Number(turno.montoTotal))}
                       </TableCell>
                       <TableCell>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon"
-                              className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
-                              onClick={e => e.stopPropagation()}>
-                              <MoreHorizontal className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={e => { e.stopPropagation(); setDetailTurno(turno) }}>
-                              <Eye className="h-4 w-4 mr-2" /> Ver detalle
-                            </DropdownMenuItem>
-                            {turno.estado !== 'PAGADO' && (
-                              <DropdownMenuItem onClick={e => { e.stopPropagation(); abrirEdicion(turno) }}>
-                                <Edit className="h-4 w-4 mr-2" /> Editar
-                              </DropdownMenuItem>
-                            )}
-                            {turno.estado === 'PENDIENTE_REVISION' && (
-                              <DropdownMenuItem onClick={e => { e.stopPropagation(); aprobarTurno(turno) }}
-                                className="text-green-600">
-                                <CheckCircle2 className="h-4 w-4 mr-2" /> Aprobar
-                              </DropdownMenuItem>
-                            )}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                        <div className="flex items-center justify-center gap-1" onClick={e => e.stopPropagation()}>
+                          {/* Ver detalle */}
+                          <button onClick={() => setDetailTurno(turno)}
+                            className="p-1.5 rounded hover:bg-gray-100 text-gray-500 hover:text-gray-700"
+                            title="Ver detalle">
+                            <Eye className="h-4 w-4" />
+                          </button>
+                          {/* Editar */}
+                          {turno.estado !== 'PAGADO' && (
+                            <button onClick={e => abrirEdicion(turno, e)}
+                              className="p-1.5 rounded hover:bg-gray-100 text-gray-500 hover:text-gray-700"
+                              title="Editar">
+                              <Edit className="h-4 w-4" />
+                            </button>
+                          )}
+                          {/* Aprobar */}
+                          {turno.estado === 'PENDIENTE_REVISION' && (
+                            <button onClick={e => aprobarTurno(turno, e)}
+                              className="p-1.5 rounded hover:bg-green-50 text-gray-500 hover:text-green-600"
+                              title="Aprobar">
+                              <Check className="h-4 w-4" />
+                            </button>
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   )
                 })}
               </TableBody>
             </Table>
-          </CardContent>
-        </Card>
-      )}
+          )}
+        </CardContent>
+      </Card>
 
       {/* ================================================================== */}
       {/* MODAL: NUEVO TURNO                                                  */}
@@ -614,8 +716,8 @@ export default function TurnosPage() {
       <Dialog open={newTurnoOpen} onOpenChange={setNewTurnoOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Nuevo Turno</DialogTitle>
-            <DialogDescription>Registrá un nuevo turno de limpieza o mantenimiento</DialogDescription>
+            <DialogTitle>Cargar turno manual</DialogTitle>
+            <DialogDescription>Registrá un turno de limpieza o mantenimiento</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
@@ -654,7 +756,7 @@ export default function TurnosPage() {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Empleado</Label>
+              <Label>Empleado *</Label>
               <Select value={formEmpleado} onValueChange={setFormEmpleado}>
                 <SelectTrigger><SelectValue placeholder="Seleccionar empleado" /></SelectTrigger>
                 <SelectContent>
@@ -679,23 +781,22 @@ export default function TurnosPage() {
               </div>
             </div>
             <div className="space-y-2">
-              <Label>Notas (opcional)</Label>
+              <Label>Notas</Label>
               <Textarea value={formNotas} onChange={e => setFormNotas(e.target.value)}
                 placeholder="Instrucciones especiales..." rows={2} />
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setNewTurnoOpen(false)}>Cancelar</Button>
-            <Button onClick={crearTurno} disabled={!formFecha || !formDepto || guardando}>
-              <Plus className="h-4 w-4 mr-2" />
-              {guardando ? 'Creando...' : 'Crear Turno'}
+            <Button onClick={crearTurno} disabled={!formFecha || !formDepto || !formEmpleado || guardando}>
+              {guardando ? 'Guardando...' : 'Cargar turno'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* ================================================================== */}
-      {/* MODAL: EDITAR TURNO                                                 */}
+      {/* MODAL: EDITAR                                                        */}
       {/* ================================================================== */}
       <Dialog open={!!editTurno} onOpenChange={v => !v && setEditTurno(null)}>
         <DialogContent className="max-w-md">
@@ -706,8 +807,8 @@ export default function TurnosPage() {
           {editTurno && (
             <div className="space-y-4">
               {editTurno.alertas?.length > 0 && (
-                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-                  <div className="flex items-center gap-2 text-amber-700 font-medium text-sm mb-1">
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm">
+                  <div className="flex items-center gap-2 text-amber-700 font-medium mb-1">
                     <AlertTriangle className="h-4 w-4" /> Alerta detectada
                   </div>
                   <ul className="text-xs text-amber-600 list-disc list-inside">
@@ -775,14 +876,14 @@ export default function TurnosPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditTurno(null)}>Cancelar</Button>
             <Button onClick={guardarEdicion} disabled={!editMotivo || guardando}>
-              {guardando ? 'Guardando...' : 'Guardar y Aprobar'}
+              {guardando ? 'Guardando...' : 'Guardar y aprobar'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* ================================================================== */}
-      {/* MODAL: DETALLE                                                      */}
+      {/* MODAL: DETALLE                                                       */}
       {/* ================================================================== */}
       {detailTurno && (
         <Dialog open={!!detailTurno} onOpenChange={() => setDetailTurno(null)}>
@@ -795,7 +896,7 @@ export default function TurnosPage() {
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div className="p-3 bg-gray-50 rounded-lg">
                   <p className="text-gray-500 mb-0.5">Fecha</p>
-                  <p className="font-semibold">{formatDate(detailTurno.fecha.split('T')[0])}</p>
+                  <p className="font-semibold">{formatFecha(detailTurno.fecha.split('T')[0])}</p>
                 </div>
                 <div className="p-3 bg-gray-50 rounded-lg">
                   <p className="text-gray-500 mb-0.5">Horario</p>
@@ -829,10 +930,22 @@ export default function TurnosPage() {
                   <span className="text-green-600">{formatCurrency(Number(detailTurno.montoTotal))}</span>
                 </div>
               </div>
-              {detailTurno.comentarios && (
+              {detailTurno.alertas?.length > 0 && (
                 <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm">
-                  <p className="font-medium text-amber-800 mb-0.5">Notas</p>
-                  <p className="text-amber-700">{detailTurno.comentarios}</p>
+                  <p className="font-medium text-amber-800 mb-1 flex items-center gap-1">
+                    <AlertTriangle className="h-4 w-4" /> Alertas
+                  </p>
+                  {detailTurno.alertas.map(a => (
+                    <p key={a} className="text-amber-700 text-xs">
+                      {a === 'DURACION_EXCEDE_LIMITE' ? 'Duración excede el límite del departamento' : 'Horario inusual'}
+                    </p>
+                  ))}
+                </div>
+              )}
+              {detailTurno.comentarios && (
+                <div className="p-3 bg-gray-50 rounded-lg text-sm">
+                  <p className="font-medium text-gray-700 mb-0.5">Notas</p>
+                  <p className="text-gray-600">{detailTurno.comentarios}</p>
                 </div>
               )}
             </div>
