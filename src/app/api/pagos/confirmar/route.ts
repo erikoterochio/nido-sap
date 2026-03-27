@@ -1,99 +1,125 @@
+// POST /api/pagos/confirmar
+// Registra el pago a una empleada:
+//   1. Crea registro en PagoEmpleado
+//   2. Marca los anticipos como DESCONTADO
+//   3. Actualiza saldoPendiente de la empleada
+//   4. Registra en AuditLog para auditoría (HistorialCambio no tiene FK a PagoEmpleado)
+
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 
-// POST /api/pagos/confirmar
-// Registra el pago, descuenta anticipos y actualiza saldo pendiente
-export async function POST(req: NextRequest) {
+export async function POST(request: NextRequest) {
   try {
-    const body = await req.json()
-    const {
-      empleadoId,
-      montoPagado,       // lo que realmente se transfirió (puede ser redondeado)
-      totalCalculado,    // lo que el sistema calculó que se debía
-      anticiposIds,      // IDs de anticipos a marcar como DESCONTADO
-      periodo,           // string "YYYY-MM-DD/YYYY-MM-DD" para el concepto
-      notas,
-    } = body
+    const body = await request.json()
+    const { empleadoId, montoPagado, totalCalculado, anticiposIds, periodo } = body
 
     // Validaciones básicas
-    if (!empleadoId || montoPagado === undefined || !periodo) {
+    if (!empleadoId || !montoPagado || !totalCalculado) {
       return NextResponse.json(
-        { error: 'Faltan campos requeridos: empleadoId, montoPagado, periodo' },
+        { error: 'Faltan datos requeridos: empleadoId, montoPagado, totalCalculado' },
+        { status: 400 }
+      )
+    }
+    if (montoPagado <= 0) {
+      return NextResponse.json(
+        { error: 'El monto pagado debe ser mayor a cero' },
         { status: 400 }
       )
     }
 
-    // Ejecutar todo en una transacción para garantizar consistencia
+    // Verificamos que la empleada exista
+    const empleado = await prisma.empleado.findUnique({ where: { id: empleadoId } })
+    if (!empleado) {
+      return NextResponse.json({ error: 'Empleada no encontrada' }, { status: 404 })
+    }
+
+    // Todo en una transacción para evitar estados inconsistentes
     const resultado = await prisma.$transaction(async (tx) => {
 
-      // 1. Registrar el pago en pagoempleado
+      // 1. Registrar el pago
       const pago = await tx.pagoEmpleado.create({
         data: {
-          id: `pago_${Date.now()}_${empleadoId}`,
           empleadoId,
           fecha: new Date(),
           monto: montoPagado,
-          concepto: `Pago semanal ${periodo}`,
-          periodo,
-          metodoPago: 'transferencia',
-          notas: notas || null,
+          concepto: `Liquidación semanal ${periodo || ''}`.trim(),
+          periodo: periodo || null,
+          metodoPago: 'TRANSFERENCIA',
+          notas: totalCalculado !== montoPagado
+            ? `Total calculado: $${totalCalculado}. Diferencia: $${montoPagado - totalCalculado}`
+            : null,
+          updatedAt: new Date(),
         },
       })
 
-      // 2. Marcar anticipos como DESCONTADO
-      if (anticiposIds && anticiposIds.length > 0) {
+      // 2. Marcar anticipos como descontados
+      if (anticiposIds?.length > 0) {
         await tx.anticipo.updateMany({
           where: {
             id: { in: anticiposIds },
-            empleadoId, // seguridad: solo anticipos de este empleado
+            empleadoId, // seguridad: solo los de esta empleada
+            estado: 'PENDIENTE',
           },
           data: {
             estado: 'DESCONTADO',
             descontadoEn: new Date(),
+            updatedAt: new Date(),
           },
         })
       }
 
-      // 3. Actualizar saldo pendiente del empleado
-      // Lógica: nuevoSaldo = totalCalculado - montoPagado
-      // Si pagamos de más → saldo negativo (el empleado nos debe, se descuenta la próxima)
-      // Si pagamos de menos → saldo positivo (le debemos, se suma la próxima)
-      const diferencia = totalCalculado - montoPagado
-      // diferencia > 0: pagamos menos de lo que debíamos → seguimos debiéndole (sumamos al saldo)
-      // diferencia < 0: pagamos más de lo que debíamos → nos queda crédito (restamos del saldo)
-
-      const empleadoActual = await tx.empleado.findUnique({
-        where: { id: empleadoId },
-        select: { saldoPendiente: true },
-      })
-
-      const saldoActual = Number(empleadoActual?.saldoPendiente ?? 0)
-      // Restamos lo que ya estaba contemplado en el cálculo y sumamos la diferencia
-      // El saldoAnterior ya fue incluido en totalCalculado, entonces el nuevo saldo es solo la diferencia
-      const nuevoSaldo = diferencia
+      // 3. Recalcular saldoPendiente
+      // positivo = le debemos a ella, negativo = nos pagamos de más
+      const nuevoSaldo = Math.round((totalCalculado - montoPagado) * 100) / 100
 
       await tx.empleado.update({
         where: { id: empleadoId },
-        data: { saldoPendiente: nuevoSaldo },
+        data: { saldoPendiente: nuevoSaldo, updatedAt: new Date() },
+      })
+
+      // 4. ✅ Fix: usar AuditLog en lugar de HistorialCambio
+      // HistorialCambio tiene FK duras solo a TurnoLimpieza y Gasto,
+      // no a PagoEmpleado — usarlo acá tiraría constraint error.
+      await tx.auditLog.create({
+        data: {
+          usuarioId: 'system', // TODO: reemplazar con ID de sesión cuando implementes auth
+          accion: 'PAGO_CONFIRMADO',
+          entidad: 'PagoEmpleado',
+          entidadId: pago.id,
+          detalles: {
+            montoPagado,
+            totalCalculado,
+            diferencia: totalCalculado - montoPagado,
+            nuevoSaldo,
+            anticiposDescontados: anticiposIds?.length || 0,
+            periodo: periodo || null,
+          },
+        },
       })
 
       return { pago, nuevoSaldo }
     })
 
+    // Mensaje para el toast de éxito
+    const diferencia = totalCalculado - montoPagado
+    let mensaje = `Pago de $${montoPagado.toLocaleString('es-AR')} registrado.`
+    if (diferencia > 0) {
+      mensaje += ` Saldo pendiente: $${diferencia.toLocaleString('es-AR')}`
+    } else if (diferencia < 0) {
+      mensaje += ` Crédito a favor: $${Math.abs(diferencia).toLocaleString('es-AR')}`
+    }
+
     return NextResponse.json({
       ok: true,
+      mensaje,
       pagoId: resultado.pago.id,
       nuevoSaldo: resultado.nuevoSaldo,
-      mensaje: resultado.nuevoSaldo === 0
-        ? 'Pago exacto registrado'
-        : resultado.nuevoSaldo > 0
-          ? `Quedó un saldo a favor del empleado de $${resultado.nuevoSaldo.toLocaleString('es-AR')}`
-          : `Quedó un crédito a favor de $${Math.abs(resultado.nuevoSaldo).toLocaleString('es-AR')} para descontar`,
     })
+
   } catch (error) {
-    console.error('Error al confirmar pago:', error)
+    console.error('[POST /api/pagos/confirmar]', error)
     return NextResponse.json(
-      { error: 'Error al registrar el pago' },
+      { error: 'Error al registrar el pago. Intentá de nuevo.' },
       { status: 500 }
     )
   }
