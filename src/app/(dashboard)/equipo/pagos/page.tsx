@@ -1,293 +1,396 @@
 'use client'
 
-import { Suspense } from 'react'
-import { useState, useMemo } from 'react'
-import Link from 'next/link'
-import { useSearchParams } from 'next/navigation'
+import { useState, useEffect, useCallback } from 'react'
 import {
-  DollarSign,
-  Search,
-  Filter,
-  Calendar,
-  CheckCircle2,
-  Clock,
-  User,
-  ChevronDown,
-  ChevronRight,
-  Download,
-  Plus,
-  AlertCircle,
-  CreditCard,
-  ArrowUpDown,
-  Eye,
-  FileText,
+  Calendar, DollarSign, Users, Check, X, Copy,
+  CreditCard, ChevronDown, ChevronUp, AlertCircle,
+  ArrowRight, Clock, Loader2,
 } from 'lucide-react'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Checkbox } from '@/components/ui/checkbox'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible'
-import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
-import { Separator } from '@/components/ui/separator'
-import { cn } from '@/lib/utils'
 
-interface TurnoPendiente {
+// ─── Tipos ────────────────────────────────────────────────────────────────────
+
+interface Turno {
   id: string
   fecha: string
   departamento: string
-  horas: number
-  monto: number
+  duracionHoras: number
+  esFeriadoFinde: boolean
   viaticos: number
-  esFindeFeriado: boolean
+  montoTotal: number
 }
 
-interface EmpleadoConPagos {
+interface Anticipo {
+  id: string
+  fecha: string
+  monto: number
+  motivo: string | null
+}
+
+interface EmpleadoPago {
   id: string
   nombre: string
   apellido: string
-  puesto: string
   cvuAlias: string | null
-  turnosPendientes: TurnoPendiente[]
-  totalPendiente: number
-  horasPendientes: number
+  precioHoraNormal: number
+  precioHoraFinde: number
+  saldoAnterior: number
+  horasNormales: number
+  horasFinde: number
+  viaticosTotal: number
+  subtotalTurnos: number
+  totalAnticipos: number
+  totalAPagar: number
+  turnos: Turno[]
+  anticipos: Anticipo[]
 }
 
-// Mock data
-const mockEmpleadosConPagos: EmpleadoConPagos[] = [
-  {
-    id: 'emp1',
-    nombre: 'Carolina',
-    apellido: 'Gómez',
-    puesto: 'STAFF_LIMPIEZA',
-    cvuAlias: 'carolina.gomez.mp',
-    turnosPendientes: [
-      { id: 't1', fecha: '2026-02-10', departamento: 'Depto A1 - Palermo', horas: 4, monto: 24000, viaticos: 2000, esFindeFeriado: false },
-      { id: 't2', fecha: '2026-02-08', departamento: 'Depto B2 - Recoleta', horas: 3.5, monto: 21000, viaticos: 1500, esFindeFeriado: false },
-      { id: 't3', fecha: '2026-02-09', departamento: 'Depto C3 - Belgrano', horas: 5, monto: 35000, viaticos: 2500, esFindeFeriado: true },
-    ],
-    totalPendiente: 86000,
-    horasPendientes: 12.5,
-  },
-  {
-    id: 'emp2',
-    nombre: 'Miguel',
-    apellido: 'Fernández',
-    puesto: 'STAFF_LIMPIEZA',
-    cvuAlias: 'miguel.fernandez',
-    turnosPendientes: [
-      { id: 't4', fecha: '2026-02-11', departamento: 'Depto D4 - San Telmo', horas: 4, monto: 24000, viaticos: 2000, esFindeFeriado: false },
-    ],
-    totalPendiente: 26000,
-    horasPendientes: 4,
-  },
-  {
-    id: 'emp4',
-    nombre: 'Pedro',
-    apellido: 'Sánchez',
-    puesto: 'MANTENIMIENTO',
-    cvuAlias: 'pedro.sanchez.cvu',
-    turnosPendientes: [
-      { id: 't5', fecha: '2026-02-07', departamento: 'Depto A1 - Palermo', horas: 3, monto: 24000, viaticos: 0, esFindeFeriado: false },
-      { id: 't6', fecha: '2026-02-05', departamento: 'Depto B2 - Recoleta', horas: 2, monto: 16000, viaticos: 0, esFindeFeriado: false },
-    ],
-    totalPendiente: 40000,
-    horasPendientes: 5,
-  },
-]
-
-const mockHistorialPagos = [
-  { id: 'p1', fecha: '2026-02-05', empleado: 'Carolina Gómez', concepto: 'Turnos semana 5', monto: 78000, metodo: 'Transferencia' },
-  { id: 'p2', fecha: '2026-02-05', empleado: 'Miguel Fernández', concepto: 'Turnos semana 5', monto: 54000, metodo: 'Transferencia' },
-  { id: 'p3', fecha: '2026-01-29', empleado: 'Carolina Gómez', concepto: 'Turnos semana 4', monto: 66000, metodo: 'Transferencia' },
-  { id: 'p4', fecha: '2026-01-29', empleado: 'Pedro Sánchez', concepto: 'Mantenimiento enero', monto: 45000, metodo: 'Transferencia' },
-]
-
-const puestoLabels: Record<string, string> = {
-  STAFF_LIMPIEZA: 'Limpieza',
-  MANTENIMIENTO: 'Mantenimiento',
-  HOST: 'Host',
+interface DatosSemana {
+  semana: { inicio: string; fin: string; diaPago: string }
+  empleados: EmpleadoPago[]
 }
 
-function formatCurrency(amount: number) {
-  return new Intl.NumberFormat('es-AR', {
-    style: 'currency',
-    currency: 'ARS',
-    maximumFractionDigits: 0,
-  }).format(amount)
-}
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function formatDate(dateStr: string) {
-  return new Date(dateStr).toLocaleDateString('es-AR', {
-    weekday: 'short',
+function formatFecha(fechaISO: string) {
+  return new Date(fechaISO + 'T12:00:00').toLocaleDateString('es-AR', {
     day: '2-digit',
-    month: 'short',
+    month: '2-digit',
   })
 }
 
-function getInitials(nombre: string, apellido: string) {
-  return `${nombre[0]}${apellido[0]}`.toUpperCase()
+function formatFechaLarga(fechaISO: string) {
+  return new Date(fechaISO + 'T12:00:00').toLocaleDateString('es-AR', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  })
 }
 
-function PagosContent() {
-  const searchParams = useSearchParams()
-  const empleadoFilter = searchParams.get('empleado')
-  
-  const [searchTerm, setSearchTerm] = useState('')
-  const [selectedTurnos, setSelectedTurnos] = useState<Set<string>>(new Set())
-  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false)
-  const [selectedEmpleado, setSelectedEmpleado] = useState<EmpleadoConPagos | null>(null)
-  const [expandedEmpleados, setExpandedEmpleados] = useState<Set<string>>(new Set())
-  const [viewMode, setViewMode] = useState<'pendientes' | 'historial'>('pendientes')
-  
-  const [paymentMethod, setPaymentMethod] = useState('transferencia')
-  const [paymentNote, setPaymentNote] = useState('')
+function formatPesos(monto: number) {
+  return `$${monto.toLocaleString('es-AR')}`
+}
 
-  const filteredEmpleados = mockEmpleadosConPagos.filter(emp => {
-    if (empleadoFilter && emp.id !== empleadoFilter) return false
-    const matchesSearch = `${emp.nombre} ${emp.apellido}`.toLowerCase().includes(searchTerm.toLowerCase())
-    return matchesSearch
-  })
+// ─── Componente Modal Pago ────────────────────────────────────────────────────
 
-  const stats = useMemo(() => ({
-    totalPendiente: mockEmpleadosConPagos.reduce((sum, e) => sum + e.totalPendiente, 0),
-    empleadosConPendiente: mockEmpleadosConPagos.filter(e => e.totalPendiente > 0).length,
-    turnosTotales: mockEmpleadosConPagos.reduce((sum, e) => sum + e.turnosPendientes.length, 0),
-    pagadoEsteMes: mockHistorialPagos.reduce((sum, p) => sum + p.monto, 0),
-  }), [])
+interface ModalPagoProps {
+  empleado: EmpleadoPago
+  semana: { inicio: string; fin: string }
+  onConfirmar: (empleadoId: string, montoPagado: number) => Promise<void>
+  onCerrar: () => void
+  cargando: boolean
+}
 
-  const toggleEmpleadoExpanded = (empleadoId: string) => {
-    setExpandedEmpleados(prev => {
-      const next = new Set(prev)
-      if (next.has(empleadoId)) {
-        next.delete(empleadoId)
-      } else {
-        next.add(empleadoId)
-      }
-      return next
-    })
-  }
-
-  const toggleTurnoSelection = (turnoId: string) => {
-    setSelectedTurnos(prev => {
-      const next = new Set(prev)
-      if (next.has(turnoId)) {
-        next.delete(turnoId)
-      } else {
-        next.add(turnoId)
-      }
-      return next
-    })
-  }
-
-  const selectAllTurnosEmpleado = (empleado: EmpleadoConPagos, select: boolean) => {
-    setSelectedTurnos(prev => {
-      const next = new Set(prev)
-      empleado.turnosPendientes.forEach(t => {
-        if (select) {
-          next.add(t.id)
-        } else {
-          next.delete(t.id)
-        }
-      })
-      return next
-    })
-  }
-
-  const getSelectedTurnosForEmpleado = (empleado: EmpleadoConPagos) => {
-    return empleado.turnosPendientes.filter(t => selectedTurnos.has(t.id))
-  }
-
-  const getSelectedTotal = (empleado: EmpleadoConPagos) => {
-    return getSelectedTurnosForEmpleado(empleado).reduce((sum, t) => sum + t.monto + t.viaticos, 0)
-  }
-
-  const openPaymentDialog = (empleado: EmpleadoConPagos) => {
-    if (getSelectedTurnosForEmpleado(empleado).length === 0) {
-      selectAllTurnosEmpleado(empleado, true)
-    }
-    setSelectedEmpleado(empleado)
-    setPaymentDialogOpen(true)
-  }
-
-  const handlePayment = () => {
-    if (!selectedEmpleado) return
-    
-    const turnosPagar = getSelectedTurnosForEmpleado(selectedEmpleado)
-    const total = turnosPagar.reduce((sum, t) => sum + t.monto + t.viaticos, 0)
-    
-    console.log('Procesando pago:', {
-      empleado: selectedEmpleado.id,
-      turnos: turnosPagar.map(t => t.id),
-      total,
-      metodo: paymentMethod,
-      nota: paymentNote,
-    })
-    
-    turnosPagar.forEach(t => selectedTurnos.delete(t.id))
-    setSelectedTurnos(new Set(selectedTurnos))
-    
-    setPaymentDialogOpen(false)
-    setSelectedEmpleado(null)
-    setPaymentNote('')
-  }
+function ModalPago({ empleado, semana, onConfirmar, onCerrar, cargando }: ModalPagoProps) {
+  const [montoPagado, setMontoPagado] = useState(
+    Math.round(empleado.totalAPagar / 100) * 100 // redondear a centena por defecto
+  )
+  const diferencia = empleado.totalAPagar - montoPagado
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Pagos al Equipo</h1>
-          <p className="text-gray-500">Gestiona los pagos pendientes y el historial</p>
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl w-full max-w-[480px] shadow-xl">
+        {/* Header */}
+        <div className="p-6 border-b flex justify-between items-center">
+          <div>
+            <h2 className="text-xl font-bold text-slate-900">Confirmar Pago</h2>
+            <p className="text-sm text-slate-500 mt-0.5">
+              {empleado.nombre} {empleado.apellido}
+            </p>
+          </div>
+          <button onClick={onCerrar} className="text-slate-400 hover:text-slate-600">
+            <X className="w-5 h-5" />
+          </button>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline">
-            <Download className="h-4 w-4 mr-2" />
-            Exportar
+
+        <div className="p-6 space-y-5">
+          {/* CVU/Alias */}
+          {empleado.cvuAlias && (
+            <div className="flex items-center gap-2 bg-slate-50 rounded-lg px-4 py-3">
+              <span className="text-sm text-slate-500">Alias:</span>
+              <span className="font-mono text-sm font-medium text-slate-800">
+                {empleado.cvuAlias}
+              </span>
+              <button
+                onClick={() => navigator.clipboard.writeText(empleado.cvuAlias!)}
+                className="ml-auto text-slate-400 hover:text-primary transition-colors"
+                title="Copiar alias"
+              >
+                <Copy className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {/* Desglose */}
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between text-slate-600">
+              <span>Subtotal turnos ({empleado.horasNormales + empleado.horasFinde}hs)</span>
+              <span>{formatPesos(empleado.subtotalTurnos)}</span>
+            </div>
+            {empleado.totalAnticipos > 0 && (
+              <div className="flex justify-between text-red-600">
+                <span>— Anticipos a descontar</span>
+                <span>− {formatPesos(empleado.totalAnticipos)}</span>
+              </div>
+            )}
+            {empleado.saldoAnterior !== 0 && (
+              <div className={`flex justify-between ${empleado.saldoAnterior > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                <span>{empleado.saldoAnterior > 0 ? '+ Saldo anterior (te debíamos)' : '— Crédito anterior (nos debía)'}</span>
+                <span>{empleado.saldoAnterior > 0 ? '+' : '−'} {formatPesos(Math.abs(empleado.saldoAnterior))}</span>
+              </div>
+            )}
+            <div className="flex justify-between font-semibold text-slate-900 border-t pt-2">
+              <span>Total calculado</span>
+              <span>{formatPesos(empleado.totalAPagar)}</span>
+            </div>
+          </div>
+
+          {/* Monto a pagar (editable para redondeo) */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">
+              Monto a transferir
+              <span className="text-slate-400 font-normal ml-1">(podés ajustar para redondear)</span>
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-medium">$</span>
+              <input
+                type="number"
+                value={montoPagado}
+                onChange={(e) => setMontoPagado(Number(e.target.value))}
+                className="w-full pl-7 pr-4 py-3 border border-slate-300 rounded-lg text-xl font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+                step={100}
+              />
+            </div>
+          </div>
+
+          {/* Aviso de diferencia */}
+          {diferencia !== 0 && (
+            <div className={`flex items-start gap-2 text-sm rounded-lg p-3 ${
+              diferencia > 0
+                ? 'bg-amber-50 text-amber-700'
+                : 'bg-emerald-50 text-emerald-700'
+            }`}>
+              <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+              <span>
+                {diferencia > 0
+                  ? `Estás pagando ${formatPesos(diferencia)} menos de lo calculado. Quedará como saldo a favor del empleado para la próxima semana.`
+                  : `Estás pagando ${formatPesos(Math.abs(diferencia))} más de lo calculado. Quedará como crédito a tu favor para descontar la próxima semana.`
+                }
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="p-6 border-t bg-slate-50 rounded-b-2xl flex gap-3">
+          <Button variant="outline" className="flex-1" onClick={onCerrar} disabled={cargando}>
+            Cancelar
+          </Button>
+          <Button
+            className="flex-1"
+            onClick={() => onConfirmar(empleado.id, montoPagado)}
+            disabled={cargando || montoPagado <= 0}
+          >
+            {cargando ? (
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <Check className="w-4 h-4 mr-2" />
+            )}
+            Confirmar Pago
           </Button>
         </div>
       </div>
+    </div>
+  )
+}
 
-      {/* Stats */}
+// ─── Página principal ─────────────────────────────────────────────────────────
+
+export default function PagosSemanaPage() {
+  const [datos, setDatos] = useState<DatosSemana | null>(null)
+  const [cargando, setCargando] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [expandido, setExpandido] = useState<string | null>(null)
+  const [modalEmpleado, setModalEmpleado] = useState<EmpleadoPago | null>(null)
+  const [pagosConfirmados, setPagosConfirmados] = useState<string[]>([])
+  const [confirmando, setConfirmando] = useState(false)
+  const [mensajeExito, setMensajeExito] = useState<string | null>(null)
+
+  // Semana seleccionada (por defecto: actual)
+  const [semanaInicio, setSemanaInicio] = useState('')
+  const [semanaFin, setSemanaFin] = useState('')
+
+  const cargarDatos = useCallback(async () => {
+    setCargando(true)
+    setError(null)
+    try {
+      const params = new URLSearchParams()
+      if (semanaInicio) params.set('inicio', semanaInicio)
+      if (semanaFin) params.set('fin', semanaFin)
+
+      const res = await fetch(`/api/pagos/semana?${params.toString()}`)
+      if (!res.ok) throw new Error('Error al cargar datos')
+      const json: DatosSemana = await res.json()
+      setDatos(json)
+    } catch (e) {
+      setError('No se pudieron cargar los datos. Intentá de nuevo.')
+    } finally {
+      setCargando(false)
+    }
+  }, [semanaInicio, semanaFin])
+
+  useEffect(() => {
+    cargarDatos()
+  }, [cargarDatos])
+
+  const confirmarPago = async (empleadoId: string, montoPagado: number) => {
+    if (!datos || !modalEmpleado) return
+    setConfirmando(true)
+    try {
+      const res = await fetch('/api/pagos/confirmar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          empleadoId,
+          montoPagado,
+          totalCalculado: modalEmpleado.totalAPagar,
+          anticiposIds: modalEmpleado.anticipos.map(a => a.id),
+          periodo: `${datos.semana.inicio}/${datos.semana.fin}`,
+        }),
+      })
+
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Error al registrar pago')
+
+      setPagosConfirmados(prev => [...prev, empleadoId])
+      setMensajeExito(json.mensaje)
+      setModalEmpleado(null)
+
+      // Limpiar mensaje después de 5 segundos
+      setTimeout(() => setMensajeExito(null), 5000)
+
+      // Recargar para reflejar nuevos saldos
+      await cargarDatos()
+    } catch (e: any) {
+      alert(e.message || 'Error al confirmar el pago')
+    } finally {
+      setConfirmando(false)
+    }
+  }
+
+  // ─── Render estados ────────────────────────────────────────────────────────
+
+  if (cargando) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        <span className="ml-3 text-slate-500">Calculando pagos...</span>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 gap-4">
+        <AlertCircle className="w-10 h-10 text-red-400" />
+        <p className="text-slate-600">{error}</p>
+        <Button onClick={cargarDatos}>Reintentar</Button>
+      </div>
+    )
+  }
+
+  if (!datos) return null
+
+  // KPIs globales
+  const empleadosPendientes = datos.empleados.filter(e => !pagosConfirmados.includes(e.id))
+  const totalPendiente = empleadosPendientes.reduce((acc, e) => acc + e.totalAPagar, 0)
+  const totalSemana = datos.empleados.reduce((acc, e) => acc + e.totalAPagar, 0)
+  const totalHoras = datos.empleados.reduce((acc, e) => acc + e.horasNormales + e.horasFinde, 0)
+
+  return (
+    <div className="space-y-6">
+      {/* Mensaje de éxito flotante */}
+      {mensajeExito && (
+        <div className="fixed top-4 right-4 z-50 bg-emerald-600 text-white px-5 py-3 rounded-xl shadow-lg flex items-center gap-2">
+          <Check className="w-4 h-4" />
+          {mensajeExito}
+        </div>
+      )}
+
+      {/* Header con info de la semana */}
+      <Card className="bg-primary/5 border-primary/20">
+        <CardContent className="p-5">
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-primary/10 rounded-xl">
+                <Calendar className="w-6 h-6 text-primary" />
+              </div>
+              <div>
+                <p className="font-semibold text-lg text-slate-900">
+                  Semana: {formatFecha(datos.semana.inicio)} al {formatFecha(datos.semana.fin)}
+                </p>
+                <p className="text-slate-500 text-sm">
+                  Día de pago: {formatFechaLarga(datos.semana.diaPago)}
+                </p>
+              </div>
+            </div>
+
+            {/* Selector de semana */}
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={semanaInicio}
+                onChange={e => setSemanaInicio(e.target.value)}
+                className="text-sm border border-slate-300 rounded-lg px-3 py-1.5 text-slate-700"
+                title="Inicio de semana"
+              />
+              <ArrowRight className="w-4 h-4 text-slate-400" />
+              <input
+                type="date"
+                value={semanaFin}
+                onChange={e => setSemanaFin(e.target.value)}
+                className="text-sm border border-slate-300 rounded-lg px-3 py-1.5 text-slate-700"
+                title="Fin de semana"
+              />
+            </div>
+
+            <div className="text-right">
+              <p className="text-sm text-slate-500">Total pendiente</p>
+              <p className="text-3xl font-bold text-primary">{formatPesos(totalPendiente)}</p>
+              <p className="text-sm text-slate-400">
+                {totalHoras}hs · {datos.empleados.length} empleadas
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-orange-100 rounded-lg">
-                <Clock className="h-5 w-5 text-orange-600" />
+              <div className="p-2 bg-slate-100 rounded-lg">
+                <Users className="w-5 h-5 text-slate-600" />
               </div>
               <div>
-                <p className="text-sm text-gray-500">Total Pendiente</p>
-                <p className="text-xl font-bold text-orange-600">{formatCurrency(stats.totalPendiente)}</p>
+                <p className="text-2xl font-bold text-slate-900">{datos.empleados.length}</p>
+                <p className="text-sm text-slate-500">Empleadas</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-emerald-100 rounded-lg">
+                <Check className="w-5 h-5 text-emerald-600" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-emerald-600">{pagosConfirmados.length}</p>
+                <p className="text-sm text-slate-500">Pagos hechos</p>
               </div>
             </div>
           </CardContent>
@@ -296,11 +399,11 @@ function PagosContent() {
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-blue-100 rounded-lg">
-                <User className="h-5 w-5 text-blue-600" />
+                <Clock className="w-5 h-5 text-blue-600" />
               </div>
               <div>
-                <p className="text-sm text-gray-500">Empleados</p>
-                <p className="text-xl font-bold">{stats.empleadosConPendiente}</p>
+                <p className="text-2xl font-bold text-slate-900">{totalHoras}hs</p>
+                <p className="text-sm text-slate-500">Horas totales</p>
               </div>
             </div>
           </CardContent>
@@ -308,353 +411,231 @@ function PagosContent() {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-yellow-100 rounded-lg">
-                <FileText className="h-5 w-5 text-yellow-600" />
+              <div className="p-2 bg-amber-100 rounded-lg">
+                <DollarSign className="w-5 h-5 text-amber-600" />
               </div>
               <div>
-                <p className="text-sm text-gray-500">Turnos a Pagar</p>
-                <p className="text-xl font-bold">{stats.turnosTotales}</p>
+                <p className="text-2xl font-bold text-amber-600">{formatPesos(totalPendiente)}</p>
+                <p className="text-sm text-slate-500">Pendiente</p>
               </div>
             </div>
           </CardContent>
         </Card>
+      </div>
+
+      {/* Tabla de empleadas */}
+      {datos.empleados.length === 0 ? (
         <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-green-100 rounded-lg">
-                <CheckCircle2 className="h-5 w-5 text-green-600" />
-              </div>
-              <div>
-                <p className="text-sm text-gray-500">Pagado este mes</p>
-                <p className="text-xl font-bold text-green-600">{formatCurrency(stats.pagadoEsteMes)}</p>
-              </div>
-            </div>
+          <CardContent className="py-16 text-center text-slate-500">
+            No hay turnos aprobados en esta semana.
           </CardContent>
         </Card>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex gap-2 border-b">
-        <button
-          onClick={() => setViewMode('pendientes')}
-          className={cn(
-            "px-4 py-2 font-medium border-b-2 transition-colors",
-            viewMode === 'pendientes'
-              ? "border-primary text-primary"
-              : "border-transparent text-gray-500 hover:text-gray-700"
-          )}
-        >
-          Pendientes
-        </button>
-        <button
-          onClick={() => setViewMode('historial')}
-          className={cn(
-            "px-4 py-2 font-medium border-b-2 transition-colors",
-            viewMode === 'historial'
-              ? "border-primary text-primary"
-              : "border-transparent text-gray-500 hover:text-gray-700"
-          )}
-        >
-          Historial
-        </button>
-      </div>
-
-      {viewMode === 'pendientes' ? (
-        <>
-          <div className="relative max-w-md">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-            <Input
-              placeholder="Buscar empleado..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9"
-            />
-          </div>
-
-          <div className="space-y-4">
-            {filteredEmpleados.length === 0 ? (
-              <Card>
-                <CardContent className="p-8 text-center">
-                  <CheckCircle2 className="h-12 w-12 text-green-300 mx-auto mb-3" />
-                  <p className="text-gray-500">No hay pagos pendientes</p>
-                </CardContent>
-              </Card>
-            ) : (
-              filteredEmpleados.map((empleado) => {
-                const isExpanded = expandedEmpleados.has(empleado.id)
-                const selectedCount = getSelectedTurnosForEmpleado(empleado).length
-                const allSelected = selectedCount === empleado.turnosPendientes.length
-                
-                return (
-                  <Card key={empleado.id}>
-                    <Collapsible open={isExpanded} onOpenChange={() => toggleEmpleadoExpanded(empleado.id)}>
-                      <CollapsibleTrigger asChild>
-                        <CardHeader className="cursor-pointer hover:bg-gray-50 transition-colors">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-4">
-                              <Avatar className="h-12 w-12">
-                                <AvatarFallback className="bg-primary/10 text-primary font-medium">
-                                  {getInitials(empleado.nombre, empleado.apellido)}
-                                </AvatarFallback>
-                              </Avatar>
-                              <div>
-                                <div className="flex items-center gap-2">
-                                  <h3 className="font-semibold">{empleado.nombre} {empleado.apellido}</h3>
-                                  <Badge variant="secondary" className="text-xs">
-                                    {puestoLabels[empleado.puesto] || empleado.puesto}
-                                  </Badge>
-                                </div>
-                                <div className="flex items-center gap-3 text-sm text-gray-500 mt-1">
-                                  <span>{empleado.turnosPendientes.length} turnos</span>
-                                  <span>•</span>
-                                  <span>{empleado.horasPendientes}hs</span>
-                                  {empleado.cvuAlias && (
-                                    <>
-                                      <span>•</span>
-                                      <span className="flex items-center gap-1">
-                                        <CreditCard className="h-3 w-3" />
-                                        {empleado.cvuAlias}
-                                      </span>
-                                    </>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-4">
-                              <div className="text-right">
-                                <p className="text-sm text-gray-500">Total pendiente</p>
-                                <p className="text-xl font-bold text-orange-600">
-                                  {formatCurrency(empleado.totalPendiente)}
-                                </p>
-                              </div>
-                              <Button
-                                size="sm"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  openPaymentDialog(empleado)
-                                }}
-                              >
-                                <DollarSign className="h-4 w-4 mr-1" />
-                                Pagar
-                              </Button>
-                              <ChevronDown className={cn(
-                                "h-5 w-5 text-gray-400 transition-transform",
-                                isExpanded && "transform rotate-180"
-                              )} />
-                            </div>
-                          </div>
-                        </CardHeader>
-                      </CollapsibleTrigger>
-                      
-                      <CollapsibleContent>
-                        <CardContent className="pt-0">
-                          <div className="border rounded-lg overflow-hidden">
-                            <Table>
-                              <TableHeader>
-                                <TableRow className="bg-gray-50">
-                                  <TableHead className="w-10">
-                                    <Checkbox
-                                      checked={allSelected}
-                                      onCheckedChange={(checked) => selectAllTurnosEmpleado(empleado, checked as boolean)}
-                                    />
-                                  </TableHead>
-                                  <TableHead>Fecha</TableHead>
-                                  <TableHead>Departamento</TableHead>
-                                  <TableHead className="text-center">Horas</TableHead>
-                                  <TableHead className="text-right">Monto</TableHead>
-                                  <TableHead className="text-right">Viáticos</TableHead>
-                                  <TableHead className="text-right">Total</TableHead>
-                                </TableRow>
-                              </TableHeader>
-                              <TableBody>
-                                {empleado.turnosPendientes.map((turno) => (
-                                  <TableRow 
-                                    key={turno.id}
-                                    className={cn(selectedTurnos.has(turno.id) && "bg-primary/5")}
-                                  >
-                                    <TableCell>
-                                      <Checkbox
-                                        checked={selectedTurnos.has(turno.id)}
-                                        onCheckedChange={() => toggleTurnoSelection(turno.id)}
-                                      />
-                                    </TableCell>
-                                    <TableCell>
-                                      <div className="flex items-center gap-2">
-                                        {formatDate(turno.fecha)}
-                                        {turno.esFindeFeriado && (
-                                          <Badge variant="secondary" className="text-xs bg-purple-100 text-purple-800">
-                                            Finde
-                                          </Badge>
-                                        )}
-                                      </div>
-                                    </TableCell>
-                                    <TableCell className="font-medium">{turno.departamento}</TableCell>
-                                    <TableCell className="text-center">{turno.horas}hs</TableCell>
-                                    <TableCell className="text-right">{formatCurrency(turno.monto)}</TableCell>
-                                    <TableCell className="text-right text-gray-500">
-                                      {turno.viaticos > 0 ? formatCurrency(turno.viaticos) : '-'}
-                                    </TableCell>
-                                    <TableCell className="text-right font-medium">
-                                      {formatCurrency(turno.monto + turno.viaticos)}
-                                    </TableCell>
-                                  </TableRow>
-                                ))}
-                              </TableBody>
-                            </Table>
-                          </div>
-                          
-                          {selectedCount > 0 && (
-                            <div className="mt-4 p-3 bg-primary/5 rounded-lg flex items-center justify-between">
-                              <span className="text-sm">
-                                {selectedCount} turno{selectedCount > 1 ? 's' : ''} seleccionado{selectedCount > 1 ? 's' : ''}
-                              </span>
-                              <div className="flex items-center gap-4">
-                                <span className="font-semibold">
-                                  Total: {formatCurrency(getSelectedTotal(empleado))}
-                                </span>
-                                <Button size="sm" onClick={() => openPaymentDialog(empleado)}>
-                                  Pagar seleccionados
-                                </Button>
-                              </div>
-                            </div>
-                          )}
-                        </CardContent>
-                      </CollapsibleContent>
-                    </Collapsible>
-                  </Card>
-                )
-              })
-            )}
-          </div>
-        </>
       ) : (
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Historial de Pagos</CardTitle>
-            <CardDescription>Últimos pagos realizados</CardDescription>
+          <CardHeader className="border-b">
+            <CardTitle className="flex items-center gap-2">
+              <Users className="w-5 h-5" />
+              Detalle por Empleada
+            </CardTitle>
           </CardHeader>
-          <CardContent className="p-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Fecha</TableHead>
-                  <TableHead>Empleado</TableHead>
-                  <TableHead>Concepto</TableHead>
-                  <TableHead>Método</TableHead>
-                  <TableHead className="text-right">Monto</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {mockHistorialPagos.map((pago) => (
-                  <TableRow key={pago.id}>
-                    <TableCell className="text-gray-500">
-                      {new Date(pago.fecha).toLocaleDateString('es-AR')}
-                    </TableCell>
-                    <TableCell className="font-medium">{pago.empleado}</TableCell>
-                    <TableCell>{pago.concepto}</TableCell>
-                    <TableCell>
-                      <Badge variant="secondary">{pago.metodo}</Badge>
-                    </TableCell>
-                    <TableCell className="text-right font-medium text-green-600">
-                      {formatCurrency(pago.monto)}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
+          <div className="divide-y">
+            {datos.empleados.map((emp) => {
+              const pagado = pagosConfirmados.includes(emp.id)
+              const isExpandido = expandido === emp.id
+
+              return (
+                <div key={emp.id}>
+                  {/* Fila principal */}
+                  <div
+                    className={`p-4 flex items-center gap-4 cursor-pointer transition-colors ${
+                      pagado ? 'bg-emerald-50' : 'hover:bg-slate-50'
+                    }`}
+                    onClick={() => setExpandido(isExpandido ? null : emp.id)}
+                  >
+                    {/* Avatar */}
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
+                      pagado ? 'bg-emerald-100' : 'bg-slate-100'
+                    }`}>
+                      {pagado
+                        ? <Check className="w-5 h-5 text-emerald-600" />
+                        : <span className="text-slate-600 font-semibold text-sm">
+                            {emp.nombre[0]}{emp.apellido[0]}
+                          </span>
+                      }
+                    </div>
+
+                    {/* Nombre y alias */}
+                    <div className="min-w-[180px]">
+                      <p className="font-medium text-slate-900">{emp.nombre} {emp.apellido}</p>
+                      {emp.cvuAlias && (
+                        <div className="flex items-center gap-1">
+                          <p className="text-xs text-slate-400 font-mono">{emp.cvuAlias}</p>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(emp.cvuAlias!) }}
+                            className="text-slate-300 hover:text-slate-500"
+                          >
+                            <Copy className="w-3 h-3" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Stats */}
+                    <div className="flex items-center gap-6 flex-1 flex-wrap">
+                      <div className="text-center">
+                        <p className="text-xs text-slate-500">Hs Normal</p>
+                        <p className="font-medium text-sm">{emp.horasNormales}hs</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-xs text-slate-500">Hs Finde</p>
+                        <p className={`font-medium text-sm ${emp.horasFinde > 0 ? 'text-amber-600' : 'text-slate-400'}`}>
+                          {emp.horasFinde > 0 ? `${emp.horasFinde}hs` : '—'}
+                        </p>
+                      </div>
+                      {emp.totalAnticipos > 0 && (
+                        <Badge variant="outline" className="text-red-600 border-red-200 bg-red-50">
+                          Anticipo: −{formatPesos(emp.totalAnticipos)}
+                        </Badge>
+                      )}
+                      {emp.saldoAnterior !== 0 && (
+                        <Badge variant="outline" className={
+                          emp.saldoAnterior > 0
+                            ? 'text-amber-600 border-amber-200 bg-amber-50'
+                            : 'text-emerald-600 border-emerald-200 bg-emerald-50'
+                        }>
+                          Saldo anterior: {emp.saldoAnterior > 0 ? '+' : ''}{formatPesos(emp.saldoAnterior)}
+                        </Badge>
+                      )}
+                    </div>
+
+                    {/* Total y acción */}
+                    <div className="flex items-center gap-4 ml-auto">
+                      <div className="text-right">
+                        <p className="text-xs text-slate-500">Total a pagar</p>
+                        <p className={`text-xl font-bold ${pagado ? 'text-emerald-600' : 'text-primary'}`}>
+                          {formatPesos(emp.totalAPagar)}
+                        </p>
+                      </div>
+
+                      {!pagado ? (
+                        <Button
+                          size="sm"
+                          onClick={(e) => { e.stopPropagation(); setModalEmpleado(emp) }}
+                        >
+                          <CreditCard className="w-4 h-4 mr-1.5" />
+                          Pagar
+                        </Button>
+                      ) : (
+                        <span className="px-3 py-1.5 bg-emerald-100 text-emerald-700 rounded-lg text-sm font-medium whitespace-nowrap">
+                          ✓ Pagado
+                        </span>
+                      )}
+
+                      <div className="text-slate-400">
+                        {isExpandido ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Detalle expandido: turnos */}
+                  {isExpandido && (
+                    <div className="px-6 pb-4 bg-slate-50 border-t">
+                      <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide pt-3 pb-2">
+                        Turnos del período
+                      </p>
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-slate-500 text-left">
+                            <th className="pb-2 font-medium">Fecha</th>
+                            <th className="pb-2 font-medium">Departamento</th>
+                            <th className="pb-2 font-medium text-center">Horas</th>
+                            <th className="pb-2 font-medium text-center">Tipo</th>
+                            <th className="pb-2 font-medium text-right">Viáticos</th>
+                            <th className="pb-2 font-medium text-right">Subtotal</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200">
+                          {emp.turnos.map((turno) => (
+                            <tr key={turno.id}>
+                              <td className="py-2">{formatFecha(turno.fecha.toString())}</td>
+                              <td className="py-2">{turno.departamento}</td>
+                              <td className="py-2 text-center">{turno.duracionHoras}hs</td>
+                              <td className="py-2 text-center">
+                                {turno.esFeriadoFinde
+                                  ? <span className="bg-amber-100 text-amber-700 px-2 py-0.5 rounded text-xs">Finde/Feriado</span>
+                                  : <span className="text-slate-400 text-xs">Normal</span>
+                                }
+                              </td>
+                              <td className="py-2 text-right">
+                                {turno.viaticos > 0 ? formatPesos(turno.viaticos) : '—'}
+                              </td>
+                              <td className="py-2 text-right font-medium">
+                                {formatPesos(turno.montoTotal)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr className="border-t-2 border-slate-300 font-semibold">
+                            <td colSpan={5} className="pt-2 text-right text-slate-600">Subtotal turnos:</td>
+                            <td className="pt-2 text-right">{formatPesos(emp.subtotalTurnos)}</td>
+                          </tr>
+                          {emp.totalAnticipos > 0 && (
+                            <tr className="text-red-600">
+                              <td colSpan={5} className="pt-1 text-right">Anticipos:</td>
+                              <td className="pt-1 text-right">−{formatPesos(emp.totalAnticipos)}</td>
+                            </tr>
+                          )}
+                          {emp.saldoAnterior !== 0 && (
+                            <tr className={emp.saldoAnterior > 0 ? 'text-amber-600' : 'text-emerald-600'}>
+                              <td colSpan={5} className="pt-1 text-right">Saldo anterior:</td>
+                              <td className="pt-1 text-right">
+                                {emp.saldoAnterior > 0 ? '+' : ''}{formatPesos(emp.saldoAnterior)}
+                              </td>
+                            </tr>
+                          )}
+                          <tr className="text-primary font-bold text-base">
+                            <td colSpan={5} className="pt-2 text-right">Total a pagar:</td>
+                            <td className="pt-2 text-right">{formatPesos(emp.totalAPagar)}</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+
+                      {/* Anticipos detalle */}
+                      {emp.anticipos.length > 0 && (
+                        <div className="mt-4">
+                          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide pb-2">
+                            Anticipos a descontar
+                          </p>
+                          <div className="space-y-1">
+                            {emp.anticipos.map(a => (
+                              <div key={a.id} className="flex justify-between text-sm bg-red-50 px-3 py-2 rounded-lg">
+                                <span className="text-red-700">{a.motivo || 'Sin motivo'} · {formatFecha(a.fecha.toString())}</span>
+                                <span className="font-medium text-red-700">−{formatPesos(a.monto)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
         </Card>
       )}
 
-      {/* Payment Dialog */}
-      <Dialog open={paymentDialogOpen} onOpenChange={setPaymentDialogOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Registrar Pago</DialogTitle>
-            <DialogDescription>
-              {selectedEmpleado && (
-                <>Pago a {selectedEmpleado.nombre} {selectedEmpleado.apellido}</>
-              )}
-            </DialogDescription>
-          </DialogHeader>
-
-          {selectedEmpleado && (
-            <div className="space-y-4">
-              <div className="p-4 bg-gray-50 rounded-lg space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Turnos seleccionados</span>
-                  <span>{getSelectedTurnosForEmpleado(selectedEmpleado).length}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Horas totales</span>
-                  <span>
-                    {getSelectedTurnosForEmpleado(selectedEmpleado).reduce((sum, t) => sum + t.horas, 0)}hs
-                  </span>
-                </div>
-                <Separator />
-                <div className="flex justify-between font-semibold text-lg">
-                  <span>Total a pagar</span>
-                  <span className="text-green-600">{formatCurrency(getSelectedTotal(selectedEmpleado))}</span>
-                </div>
-              </div>
-
-              {selectedEmpleado.cvuAlias && (
-                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                  <div className="flex items-center gap-2 text-blue-800">
-                    <CreditCard className="h-4 w-4" />
-                    <span className="text-sm font-medium">CVU/Alias:</span>
-                    <code className="bg-blue-100 px-2 py-0.5 rounded text-sm">
-                      {selectedEmpleado.cvuAlias}
-                    </code>
-                  </div>
-                </div>
-              )}
-
-              <div className="space-y-2">
-                <Label>Método de Pago</Label>
-                <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="transferencia">Transferencia Bancaria</SelectItem>
-                    <SelectItem value="efectivo">Efectivo</SelectItem>
-                    <SelectItem value="mercadopago">MercadoPago</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Nota (opcional)</Label>
-                <Textarea
-                  value={paymentNote}
-                  onChange={(e) => setPaymentNote(e.target.value)}
-                  placeholder="Ej: Pago correspondiente a la semana del 5 al 11 de febrero"
-                  rows={2}
-                />
-              </div>
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setPaymentDialogOpen(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={handlePayment}>
-              <CheckCircle2 className="h-4 w-4 mr-2" />
-              Confirmar Pago
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Modal de confirmación */}
+      {modalEmpleado && datos && (
+        <ModalPago
+          empleado={modalEmpleado}
+          semana={datos.semana}
+          onConfirmar={confirmarPago}
+          onCerrar={() => setModalEmpleado(null)}
+          cargando={confirmando}
+        />
+      )}
     </div>
-  )
-}
-
-export default function PagosPage() {
-  return (
-    <Suspense fallback={<div className="p-8 text-center">Cargando...</div>}>
-      <PagosContent />
-    </Suspense>
   )
 }

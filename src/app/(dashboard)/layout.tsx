@@ -17,6 +17,7 @@ import {
   Menu,
   X,
   Bell,
+  TrendingUp,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -27,6 +28,11 @@ interface NavItem {
   icon: React.ComponentType<{ className?: string }>
   children?: { label: string; href: string }[]
 }
+// src/app/(dashboard)/layout.tsx
+// CAMBIO: solo se modifica el array navItems
+// - Pagos movido de Equipo → Finanzas
+// - Reportes promovido a sección propia (era subsección de Finanzas)
+// - Corregido encoding "ConfiguraciÃ³n" → "Configuración"
 
 const navItems: NavItem[] = [
   {
@@ -55,7 +61,7 @@ const navItems: NavItem[] = [
     icon: Sparkles,
     children: [
       { label: 'Turnos Limpieza', href: '/operaciones/turnos' },
-      { label: 'Mantenimiento', href: '/operaciones/mantenimiento' },
+      { label: 'Mantenimiento',   href: '/operaciones/mantenimiento' },
     ],
   },
   {
@@ -63,22 +69,29 @@ const navItems: NavItem[] = [
     href: '/finanzas',
     icon: DollarSign,
     children: [
-      { label: 'Liquidaciones', href: '/finanzas/liquidaciones' },
-      { label: 'Gastos', href: '/finanzas/gastos' },
-      { label: 'Reportes', href: '/finanzas/reportes' },
+      { label: 'Liquidaciones',   href: '/finanzas/liquidaciones' },
+      { label: 'Gastos',          href: '/finanzas/gastos' },
+      // MOVIDO: antes estaba en Equipo
+      { label: 'Pagos empleados', href: '/finanzas/pagos' },
+    ],
+  },
+  {
+    label: 'Reportes',
+    href: '/reportes',
+    icon: TrendingUp,
+    children: [
+      { label: 'Ocupación',    href: '/reportes/ocupacion' },
+      { label: 'Rentabilidad', href: '/reportes/rentabilidad' },
+      { label: 'Equipo',       href: '/reportes/equipo' },
     ],
   },
   {
     label: 'Equipo',
-    href: '/equipo',
+    href: '/equipo/empleados',
     icon: Users,
-    children: [
-      { label: 'Empleados', href: '/equipo/empleados' },
-      { label: 'Pagos', href: '/equipo/pagos' },
-    ],
   },
   {
-    label: 'Configuración',
+    label: 'Configuración',   // CORREGIDO: encoding roto
     href: '/configuracion',
     icon: Settings,
   },
