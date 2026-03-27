@@ -83,17 +83,19 @@ function formatHoras(h: number) {
   return `${r % 1 === 0 ? r.toFixed(0) : r}hs`
 }
 
-// Rango semana (lunes–domingo) desde una fecha
+// Rango semana VIERNES–JUEVES desde una fecha
 function semanaDesde(fecha: Date): { inicio: string; fin: string } {
-  const dia = fecha.getDay()
-  const diffLunes = dia === 0 ? 6 : dia - 1
-  const lunes = new Date(fecha)
-  lunes.setDate(fecha.getDate() - diffLunes)
-  const domingo = new Date(lunes)
-  domingo.setDate(lunes.getDate() + 6)
+  const dia = fecha.getDay() // 0=dom, 1=lun, 2=mar, 3=mie, 4=jue, 5=vie, 6=sab
+  // Cuántos días retroceder para llegar al viernes anterior
+  // vie=0, sab=1, dom=2, lun=3, mar=4, mie=5, jue=6
+  const diasDesdeViernes = (dia + 2) % 7
+  const viernes = new Date(fecha)
+  viernes.setDate(fecha.getDate() - diasDesdeViernes)
+  const jueves = new Date(viernes)
+  jueves.setDate(viernes.getDate() + 6)
   return {
-    inicio: lunes.toISOString().split('T')[0],
-    fin: domingo.toISOString().split('T')[0],
+    inicio: viernes.toISOString().split('T')[0],
+    fin: jueves.toISOString().split('T')[0],
   }
 }
 
@@ -107,7 +109,7 @@ function mesDesde(fecha: Date): { inicio: string; fin: string } {
   }
 }
 
-// Navega al período anterior/siguiente según el modo
+// Navega al período anterior/siguiente
 function navegar(inicioActual: string, modo: ModoVista, dir: -1 | 1) {
   const fecha = parseISO(inicioActual)
   if (modo === 'semana') {
@@ -254,7 +256,7 @@ export default function PagosSemanaPage() {
   const [confirmando, setConfirmando] = useState(false)
   const [mensajeExito, setMensajeExito] = useState<string | null>(null)
 
-  // Control de período
+  // Control de período — semana viernes a jueves por defecto
   const [modo, setModo] = useState<ModoVista>('semana')
   const [rango, setRango] = useState(() => semanaDesde(new Date()))
   const [busqueda, setBusqueda] = useState('')
@@ -317,7 +319,7 @@ export default function PagosSemanaPage() {
     }
   }
 
-  // ─── Filtros aplicados ────────────────────────────────────────────────────
+  // ─── Filtros ──────────────────────────────────────────────────────────────
 
   const empleadosFiltrados = (datos?.empleados ?? []).filter(emp => {
     const nombre = `${emp.nombre} ${emp.apellido}`.toLowerCase()
@@ -334,8 +336,6 @@ export default function PagosSemanaPage() {
     .reduce((acc, e) => acc + e.totalAPagar, 0)
   const totalHoras = (datos?.empleados ?? [])
     .reduce((acc, e) => acc + e.horasNormales + e.horasFinde, 0)
-
-  // ─── Error state ──────────────────────────────────────────────────────────
 
   if (error) {
     return (
@@ -358,16 +358,13 @@ export default function PagosSemanaPage() {
       )}
 
       {/* ── Header ── */}
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Pagos de Empleadas</h1>
-          <p className="text-slate-500 text-sm mt-0.5">Liquidá y registrá pagos del equipo</p>
-        </div>
+      <div>
+        <h1 className="text-2xl font-bold text-slate-900">Pagos de Empleadas</h1>
+        <p className="text-slate-500 text-sm mt-0.5">Liquidá y registrá pagos del equipo</p>
       </div>
 
-      {/* ── Barra de filtros (igual que Turnos) ── */}
+      {/* ── Filtros ── */}
       <div className="flex items-center gap-3 flex-wrap">
-        {/* Buscador */}
         <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
@@ -385,7 +382,7 @@ export default function PagosSemanaPage() {
             <button
               key={m}
               onClick={() => cambiarModo(m)}
-              className={`px-4 py-2 text-sm font-medium capitalize transition-colors ${
+              className={`px-4 py-2 text-sm font-medium transition-colors ${
                 modo === m ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-50'
               }`}
             >
@@ -413,7 +410,7 @@ export default function PagosSemanaPage() {
           </button>
         </div>
 
-        {/* Día de pago alineado a la derecha */}
+        {/* Día de pago */}
         {datos && !cargando && (
           <span className="text-sm text-slate-400 ml-auto">
             Día de pago: <span className="text-slate-600 font-medium">{formatFechaLarga(datos.semana.diaPago)}</span>
@@ -421,7 +418,7 @@ export default function PagosSemanaPage() {
         )}
       </div>
 
-      {/* ── Tabs con total pendiente ── */}
+      {/* ── Tabs ── */}
       <div className="flex items-center border-b border-slate-200">
         {([
           { key: 'pendientes' as TabActivo, label: 'Pendientes', count: cantPendientes, icon: <Clock className="w-4 h-4" /> },
@@ -447,7 +444,6 @@ export default function PagosSemanaPage() {
           </button>
         ))}
 
-        {/* Total pendiente — alineado a la derecha en la misma fila de tabs */}
         {!cargando && totalPendiente > 0 && (
           <div className="ml-auto flex items-center gap-2 pb-1 pr-1">
             <span className="text-sm text-slate-400">Total pendiente:</span>
@@ -492,7 +488,6 @@ export default function PagosSemanaPage() {
 
               return (
                 <div key={emp.id}>
-                  {/* ── Fila empleada ── */}
                   <div
                     className={`grid grid-cols-[2fr_1fr_1fr_1fr_1.5fr_auto] gap-4 items-center px-6 py-4 cursor-pointer transition-colors ${
                       pagado ? 'bg-emerald-50/60' : 'hover:bg-slate-50'
@@ -504,10 +499,7 @@ export default function PagosSemanaPage() {
                       <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-sm font-semibold ${
                         pagado ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
                       }`}>
-                        {pagado
-                          ? <Check className="w-4 h-4" />
-                          : `${emp.nombre[0]}${emp.apellido[0]}`
-                        }
+                        {pagado ? <Check className="w-4 h-4" /> : `${emp.nombre[0]}${emp.apellido[0]}`}
                       </div>
                       <div>
                         <p className="font-medium text-slate-900 text-sm">{emp.nombre} {emp.apellido}</p>
@@ -584,7 +576,7 @@ export default function PagosSemanaPage() {
                     </div>
                   </div>
 
-                  {/* ── Detalle expandido ── */}
+                  {/* Detalle expandido */}
                   {isExpandido && (
                     <div className="px-6 pb-5 pt-3 bg-slate-50/80 border-t border-slate-100">
                       <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">
@@ -613,12 +605,8 @@ export default function PagosSemanaPage() {
                                   : <span className="text-slate-400 text-xs">Normal</span>
                                 }
                               </td>
-                              <td className="py-2 text-right text-sm">
-                                {turno.viaticos > 0 ? formatPesos(turno.viaticos) : '—'}
-                              </td>
-                              <td className="py-2 text-right text-sm font-medium text-slate-800">
-                                {formatPesos(turno.montoTotal)}
-                              </td>
+                              <td className="py-2 text-right text-sm">{turno.viaticos > 0 ? formatPesos(turno.viaticos) : '—'}</td>
+                              <td className="py-2 text-right text-sm font-medium text-slate-800">{formatPesos(turno.montoTotal)}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -636,9 +624,7 @@ export default function PagosSemanaPage() {
                           {emp.saldoAnterior !== 0 && (
                             <tr className={emp.saldoAnterior > 0 ? 'text-amber-600' : 'text-emerald-600'}>
                               <td colSpan={5} className="pt-1 text-right">Saldo anterior:</td>
-                              <td className="pt-1 text-right">
-                                {emp.saldoAnterior > 0 ? '+' : ''}{formatPesos(emp.saldoAnterior)}
-                              </td>
+                              <td className="pt-1 text-right">{emp.saldoAnterior > 0 ? '+' : ''}{formatPesos(emp.saldoAnterior)}</td>
                             </tr>
                           )}
                           <tr className="font-bold text-base text-slate-900">
@@ -670,7 +656,7 @@ export default function PagosSemanaPage() {
             })}
           </div>
 
-          {/* Footer con resumen */}
+          {/* Footer resumen */}
           {datos && datos.empleados.length > 0 && (
             <div className="px-6 py-3 bg-slate-50 border-t border-slate-200 flex items-center gap-6 text-sm text-slate-500">
               <span className="flex items-center gap-1.5">

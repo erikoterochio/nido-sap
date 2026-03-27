@@ -1,6 +1,7 @@
 // GET /api/pagos/semana?inicio=YYYY-MM-DD&fin=YYYY-MM-DD
 // Devuelve el resumen de pagos del período: empleadas, turnos aprobados,
 // anticipos pendientes y saldos anteriores.
+// Semana: viernes a jueves (día de pago = jueves)
 
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
@@ -16,25 +17,23 @@ export async function GET(request: NextRequest) {
     let inicio = searchParams.get('inicio')
     let fin = searchParams.get('fin')
 
-    // Si no vienen fechas, calculamos la semana actual (lunes a domingo)
+    // Si no vienen fechas, calculamos la semana actual (viernes a jueves)
     if (!inicio || !fin) {
       const hoy = new Date()
-      const diaSemana = hoy.getDay()
-      const diasDesdeElLunes = diaSemana === 0 ? 6 : diaSemana - 1
-      const lunes = new Date(hoy)
-      lunes.setDate(hoy.getDate() - diasDesdeElLunes)
-      const domingo = new Date(lunes)
-      domingo.setDate(lunes.getDate() + 6)
-      inicio = lunes.toISOString().split('T')[0]
-      fin = domingo.toISOString().split('T')[0]
+      const dia = hoy.getDay() // 0=dom, 1=lun, 2=mar, 3=mie, 4=jue, 5=vie, 6=sab
+      // Cuántos días retroceder para llegar al viernes anterior
+      // vie=0, sab=1, dom=2, lun=3, mar=4, mie=5, jue=6
+      const diasDesdeViernes = (dia + 2) % 7
+      const viernes = new Date(hoy)
+      viernes.setDate(hoy.getDate() - diasDesdeViernes)
+      const jueves = new Date(viernes)
+      jueves.setDate(viernes.getDate() + 6)
+      inicio = viernes.toISOString().split('T')[0]
+      fin = jueves.toISOString().split('T')[0]
     }
 
-    // Día de pago: viernes de la semana siguiente al fin del período
-    const fechaFin = new Date(fin + 'T12:00:00')
-    const diasHastaViernes = (5 - fechaFin.getDay() + 7) % 7 || 7
-    const diaPago = new Date(fechaFin)
-    diaPago.setDate(fechaFin.getDate() + diasHastaViernes)
-    const diaPagoStr = diaPago.toISOString().split('T')[0]
+    // El día de pago es el jueves (último día del período)
+    const diaPagoStr = fin
 
     // Turnos APROBADOS del período con empleada y departamento
     const turnos = await prisma.turnoLimpieza.findMany({
@@ -126,7 +125,7 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    // Calculamos totales y redondeamos todo para evitar errores de float
+    // Calculamos totales y redondeamos para evitar errores de float
     for (const [, datos] of Array.from(empleadosMap)) {
       datos.horasNormales  = redondear(datos.horasNormales, 2)
       datos.horasFinde     = redondear(datos.horasFinde, 2)
