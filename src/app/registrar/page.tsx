@@ -1,260 +1,597 @@
-// src/app/api/registrar-turno/route.ts
-// Endpoint POST: valida, guarda en Supabase y en Google Sheets
-// Cambios: acepta FormData (antes JSON), guarda motivosExceso y fotosUrls
+'use client';
 
-import { NextRequest, NextResponse } from 'next/server';
-import { getSheetsClient, SHEET_ID, HOJA_TURNOS } from '@/lib/google-sheets';
-import { PrismaClient } from '@prisma/client';
+// src/app/registrar/page.tsx
+// Formulario para que las empleadas registren sus turnos de limpieza
+// Cambios: motivos múltiples de exceso (reemplaza checkbox), upload de fotos
 
-const prisma = new PrismaClient({
-  datasources: {
-    db: {
-      url: process.env.DATABASE_URL + '?pgbouncer=true&connection_limit=1',
-    },
-  },
-});
+import { useEffect, useRef, useState } from 'react';
+
+// ─── Constantes ───────────────────────────────────────────────────────────────
+
+// Motivos posibles para extenderse en el turno
+const MOTIVOS_EXCESO = [
+  { id: 'lavado_sabanas_toallas', label: 'Lavado sábanas / toallas' },
+  { id: 'estadia_larga',          label: 'Estadía de huésped larga' },
+  { id: 'otros',                  label: 'Otros (detallá en comentarios)' },
+] as const;
+
+// Genera array de horas ["00","01",...,"23"]
+const HORAS   = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
+// Genera array de minutos ["00","15","30","45"]
+const MINUTOS = ['00', '15', '30', '45'];
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
-export interface DatosTurno {
+interface LimiteDepartamento {
+  nombre: string;
+  limiteHoras: number;
+  permiteExcederConLavado: boolean;
+}
+
+interface OpcionesFormulario {
+  empleadas: string[];
+  departamentos: string[];
+  limites: LimiteDepartamento[];
+}
+
+interface FormData {
   nombre: string;
   departamento: string;
-  fecha: string;          // YYYY-MM-DD
-  horaEntrada: string;    // HH:MM
-  horaSalida: string;     // HH:MM
-  viaticos: number;
+  fecha: string;
+  horaEntradaH: string;
+  horaEntradaM: string;
+  horaSalidaH: string;
+  horaSalidaM: string;
+  viaticos: string;
   comentarios: string;
-  motivosExceso: string[]; // reemplaza huboLavado
+  // Reemplaza el anterior huboLavado: boolean
+  motivosExceso: string[];
 }
+
+const formInicial: FormData = {
+  nombre:       '',
+  departamento: '',
+  fecha:        new Date().toISOString().split('T')[0],
+  horaEntradaH: '',
+  horaEntradaM: '00',
+  horaSalidaH:  '',
+  horaSalidaM:  '00',
+  viaticos:     '',
+  comentarios:  '',
+  motivosExceso: [],
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function calcularDuracion(entrada: string, salida: string): number {
+function calcularDuracion(entrada: string, salida: string): number | null {
+  if (!entrada || !salida) return null;
   const [hE, mE] = entrada.split(':').map(Number);
   const [hS, mS] = salida.split(':').map(Number);
-  return (hS * 60 + mS - (hE * 60 + mE)) / 60;
+  const minutos = hS * 60 + mS - (hE * 60 + mE);
+  return minutos > 0 ? minutos / 60 : null;
 }
 
-async function esFeriadoOFinde(fecha: string): Promise<boolean> {
-  const date     = new Date(fecha + 'T00:00:00');
-  const diaSemana = date.getUTCDay();
-  if (diaSemana === 0 || diaSemana === 6) return true;
-
-  const feriado = await prisma.diaEspecial.findFirst({
-    where: { fecha: new Date(fecha + 'T00:00:00'), tipo: 'FERIADO' },
-  });
-  return !!feriado;
+function combinarHora(h: string, m: string): string {
+  return h && m ? `${h}:${m}` : '';
 }
 
-/**
- * Sube un archivo a Supabase Storage usando la API REST directamente.
- * Bucket: turnos-fotos (debe ser público en Supabase).
- * Retorna la URL pública o null si falló.
- */
-async function subirFoto(
-  turnoId: string,
-  archivo: File,
-  indice: number
-): Promise<string | null> {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  // Usamos la anon key (no service_role) combinada con la política de INSERT
-  // en el bucket turnos-fotos. Permite subir pero no listar ni borrar.
-  const anonKey     = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+// ─── Componente principal ─────────────────────────────────────────────────────
 
-  if (!supabaseUrl || !anonKey) {
-    console.warn('Variables de Supabase Storage no configuradas');
-    return null;
-  }
+export default function RegistrarTurno() {
+  const [opciones, setOpciones]       = useState<OpcionesFormulario | null>(null);
+  const [form, setForm]               = useState<FormData>(formInicial);
+  const [fotos, setFotos]             = useState<File[]>([]);
+  const [previews, setPreviews]       = useState<string[]>([]);
+  const [error, setError]             = useState<string>('');
+  const [enviando, setEnviando]       = useState(false);
+  const [enviado, setEnviado]         = useState(false);
+  const [cargando, setCargando]       = useState(true);
+  const inputFotosRef                 = useRef<HTMLInputElement>(null);
 
-  // Path dentro del bucket: {turnoId}/0.jpg, {turnoId}/1.png, etc.
-  const extension = archivo.name.split('.').pop()?.toLowerCase() ?? 'jpg';
-  const path      = `${turnoId}/${indice}.${extension}`;
+  // Límite del departamento seleccionado
+  const limiteDepartamento = opciones?.limites?.find(
+    (l) => l.nombre === form.departamento
+  );
 
-  try {
-    const arrayBuffer = await archivo.arrayBuffer();
+  // Combinar campos de hora
+  const horaEntrada = combinarHora(form.horaEntradaH, form.horaEntradaM);
+  const horaSalida  = combinarHora(form.horaSalidaH,  form.horaSalidaM);
 
-    const res = await fetch(
-      `${supabaseUrl}/storage/v1/object/turnos-fotos/${path}`,
-      {
-        method:  'POST',
-        headers: {
-          Authorization: `Bearer ${anonKey}`,
-          'Content-Type': archivo.type || 'image/jpeg',
-        },
-        body: arrayBuffer,
-      }
-    );
+  // Duración calculada en tiempo real
+  const duracion = calcularDuracion(horaEntrada, horaSalida);
 
-    if (!res.ok) {
-      const err = await res.text();
-      console.error(`Error subiendo foto ${indice}:`, err);
-      return null;
-    }
+  // Si tiene al menos un motivo y el depto lo permite → +1 hora de margen
+  const tieneMotivo     = form.motivosExceso.length > 0;
+  const limiteEfectivo  = limiteDepartamento
+    ? limiteDepartamento.limiteHoras +
+      (tieneMotivo && limiteDepartamento.permiteExcederConLavado ? 1 : 0)
+    : null;
 
-    // URL pública del bucket
-    return `${supabaseUrl}/storage/v1/object/public/turnos-fotos/${path}`;
-  } catch (err) {
-    console.error(`Excepción subiendo foto ${indice}:`, err);
-    return null;
-  }
-}
+  // ¿Supera el límite efectivo? (bloquea el envío)
+  const excedeLimite =
+    duracion !== null &&
+    limiteEfectivo !== null &&
+    duracion > limiteEfectivo;
 
-// ─── Handler principal ────────────────────────────────────────────────────────
-
-export async function POST(req: NextRequest) {
-  try {
-    // Parsear FormData (antes era req.json())
-    const formData = await req.formData();
-
-    const datosRaw = formData.get('datos');
-    if (!datosRaw || typeof datosRaw !== 'string') {
-      return NextResponse.json({ error: 'Faltan datos del turno' }, { status: 400 });
-    }
-
-    const datos: DatosTurno = JSON.parse(datosRaw);
-    const archivos           = formData.getAll('fotos') as File[];
-
-    // Validación de campos requeridos
-    if (!datos.nombre || !datos.departamento || !datos.fecha || !datos.horaEntrada || !datos.horaSalida) {
-      return NextResponse.json({ error: 'Faltan campos obligatorios' }, { status: 400 });
-    }
-
-    const duracionHoras = calcularDuracion(datos.horaEntrada, datos.horaSalida);
-    if (duracionHoras <= 0) {
-      return NextResponse.json(
-        { error: 'La hora de salida debe ser posterior a la hora de entrada' },
-        { status: 400 }
-      );
-    }
-
-    // ── Buscar empleada ──────────────────────────────────────────────────────
-    const partes   = datos.nombre.trim().split(' ');
-    const nombre   = partes[0];
-    const apellido = partes.slice(1).join(' ');
-
-    const empleado = await prisma.empleado.findFirst({
-      where: { nombre, apellido, activo: true },
-    });
-
-    // ── Determinar si es feriado/finde ───────────────────────────────────────
-    const esFinde = await esFeriadoOFinde(datos.fecha);
-
-    // ── Calcular precio y monto ──────────────────────────────────────────────
-    const precioHora = empleado
-      ? (esFinde ? Number(empleado.precioHoraFinde) : Number(empleado.precioHoraNormal))
-      : 0;
-    const montoTotal = precioHora * duracionHoras + datos.viaticos;
-
-    // ── Buscar departamento ──────────────────────────────────────────────────
-    const departamento = await prisma.departamento.findFirst({
-      where: { nombre: datos.departamento },
-    });
-
-    // ── Crear el turno en Supabase ───────────────────────────────────────────
-    let turnoId: string | null = null;
-
-    if (empleado && departamento) {
-      const fechaDate = new Date(datos.fecha + 'T00:00:00');
-      const mes       = new Date(fechaDate.getFullYear(), fechaDate.getMonth(), 1);
-      turnoId         = crypto.randomUUID();
-
-      await prisma.turnoLimpieza.create({
-        data: {
-          id:             turnoId,
-          tipo:           'LIMPIEZA',
-          empleadoId:     empleado.id,
-          departamentoId: departamento.id,
-          fecha:          fechaDate,
-          horaEntrada:    datos.horaEntrada,
-          horaSalida:     datos.horaSalida,
-          duracionHoras,
-          viaticos:       datos.viaticos,
-          esFeriadoFinde: esFinde,
-          comentarios:    datos.comentarios || null,
-          precioHora,
-          montoTotal,
-          mes,
-          estado:         'PENDIENTE_REVISION',
-          alertas:        [],
-          motivosExceso:  datos.motivosExceso ?? [],
-          fotosUrls:      [], // se actualizan después de subir las fotos
-          updatedAt:      new Date(),
-        },
+  // ─── Cargar opciones al montar ───────────────────────────────────────────
+  useEffect(() => {
+    fetch('/api/form-options')
+      .then((r) => r.json())
+      .then((data: OpcionesFormulario) => {
+        setOpciones(data);
+        setCargando(false);
+      })
+      .catch(() => {
+        setError('No se pudieron cargar los datos. Recargá la página.');
+        setCargando(false);
       });
+  }, []);
+
+  // ─── Manejador de cambios de texto / select ──────────────────────────────
+  function handleChange(
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
+  ) {
+    const { name, value } = e.target;
+    setForm((prev) => ({
+      ...prev,
+      [name]: value,
+      // Al cambiar departamento, resetear los motivos
+      ...(name === 'departamento' ? { motivosExceso: [] } : {}),
+    }));
+    setError('');
+  }
+
+  // ─── Toggle de motivos de exceso ─────────────────────────────────────────
+  function toggleMotivo(motivoId: string) {
+    setForm((prev) => ({
+      ...prev,
+      motivosExceso: prev.motivosExceso.includes(motivoId)
+        ? prev.motivosExceso.filter((m) => m !== motivoId)
+        : [...prev.motivosExceso, motivoId],
+    }));
+    setError('');
+  }
+
+  // ─── Manejo de fotos ─────────────────────────────────────────────────────
+  function handleSeleccionarFotos(e: React.ChangeEvent<HTMLInputElement>) {
+    const archivos = Array.from(e.target.files ?? []);
+    if (archivos.length === 0) return;
+
+    setFotos((prev) => [...prev, ...archivos]);
+
+    // Generar previews con FileReader
+    archivos.forEach((archivo) => {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        setPreviews((prev) => [...prev, ev.target!.result as string]);
+      };
+      reader.readAsDataURL(archivo);
+    });
+
+    // Limpiar input para poder volver a seleccionar el mismo archivo
+    if (inputFotosRef.current) inputFotosRef.current.value = '';
+  }
+
+  function removerFoto(indice: number) {
+    setFotos((prev) => prev.filter((_, i) => i !== indice));
+    setPreviews((prev) => prev.filter((_, i) => i !== indice));
+  }
+
+  // ─── Envío del formulario ────────────────────────────────────────────────
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError('');
+
+    if (duracion === null || duracion <= 0) {
+      setError('La hora de salida debe ser posterior a la hora de entrada.');
+      return;
     }
 
-    // ── Subir fotos y actualizar el turno con las URLs ───────────────────────
-    // Se hace después de crear el turno para tener el turnoId disponible.
-    // Si falla alguna foto no se bloquea el registro.
-    let fotosUrls: string[] = [];
-
-    if (turnoId && archivos.length > 0) {
-      const resultados = await Promise.all(
-        archivos.map((archivo, i) => subirFoto(turnoId!, archivo, i))
+    if (excedeLimite) {
+      setError(
+        `Este departamento tiene un límite de ${limiteDepartamento!.limiteHoras} hs. ` +
+          `Estás cargando ${duracion.toFixed(1)} hs.`
       );
-      fotosUrls = resultados.filter((url): url is string => url !== null);
-
-      if (fotosUrls.length > 0) {
-        await prisma.turnoLimpieza.update({
-          where: { id: turnoId },
-          data:  { fotosUrls },
-        });
-      }
+      return;
     }
 
-    // ── Guardar en Google Sheets ─────────────────────────────────────────────
-    const marcaTemporal = new Date().toLocaleString('es-AR', {
-      timeZone: 'America/Argentina/Buenos_Aires',
-    });
+    setEnviando(true);
 
-    // Convertir motivos a texto legible para el sheet
-    const motivosTexto = datos.motivosExceso.length > 0
-      ? datos.motivosExceso
-          .map((m) => ({
-            lavado_sabanas_toallas: 'Lavado sábanas/toallas',
-            estadia_larga:          'Estadía larga',
-            otros:                  'Otros',
-          }[m] ?? m))
-          .join(', ')
-      : '';
+    try {
+      // Armamos un FormData para poder enviar fotos junto con los datos
+      const payload = new FormData();
+      payload.append(
+        'datos',
+        JSON.stringify({
+          nombre:        form.nombre,
+          departamento:  form.departamento,
+          fecha:         form.fecha,
+          horaEntrada,
+          horaSalida,
+          viaticos:      parseFloat(form.viaticos) || 0,
+          comentarios:   form.comentarios,
+          motivosExceso: form.motivosExceso,
+        })
+      );
+      fotos.forEach((foto) => payload.append('fotos', foto));
 
-    const fila = [
-      marcaTemporal,
-      datos.nombre,
-      datos.departamento,
-      datos.fecha,
-      datos.horaEntrada,
-      datos.horaSalida,
-      duracionHoras.toFixed(1).replace('.', ','),
-      datos.viaticos || 0,
-      motivosTexto,          // reemplaza la columna "¿Hubo lavado?"
-      esFinde ? 'SÍ' : 'NO',
-      datos.comentarios || '',
-      fotosUrls.length > 0 ? `${fotosUrls.length} foto(s)` : '',
-    ];
+      const res = await fetch('/api/registrar-turno', {
+        method: 'POST',
+        body:   payload, // sin Content-Type: lo pone el browser automáticamente con boundary
+      });
 
-    const sheets = getSheetsClient();
-    await sheets.spreadsheets.values.append({
-      spreadsheetId:   SHEET_ID,
-      range:           `${HOJA_TURNOS}!A:L`,
-      valueInputOption: 'USER_ENTERED',
-      requestBody:     { values: [fila] },
-    });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error ?? 'Error desconocido');
+      }
 
-    return NextResponse.json({
-      ok: true,
-      duracionHoras,
-      esFinde,
-      montoTotal:         empleado ? montoTotal : null,
-      guardadoEnSupabase: !!(empleado && departamento),
-      fotosSubidas:       fotosUrls.length,
-    });
+      setEnviado(true);
+      setForm(formInicial);
+      setFotos([]);
+      setPreviews([]);
+    } catch (err: unknown) {
+      setError(
+        err instanceof Error ? err.message : 'No se pudo guardar. Intentá de nuevo.'
+      );
+    } finally {
+      setEnviando(false);
+    }
+  }
 
-  } catch (error) {
-    console.error('Error al registrar turno:', error);
-    return NextResponse.json(
-      { error: 'No se pudo guardar el turno. Intentá de nuevo.' },
-      { status: 500 }
+  // ─── Pantalla de éxito ───────────────────────────────────────────────────
+  if (enviado) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-sm p-8 max-w-sm w-full text-center">
+          <div className="text-5xl mb-4">✅</div>
+          <h2 className="text-xl font-semibold text-gray-800 mb-2">
+            ¡Turno registrado!
+          </h2>
+          <p className="text-gray-500 text-sm mb-6">
+            El turno se guardó correctamente.
+          </p>
+          <button
+            onClick={() => setEnviado(false)}
+            className="w-full bg-blue-600 text-white py-3 rounded-xl font-medium hover:bg-blue-700 transition-colors"
+          >
+            Registrar otro turno
+          </button>
+        </div>
+      </div>
     );
   }
+
+  // ─── Pantalla de carga ───────────────────────────────────────────────────
+  if (cargando) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <p className="text-gray-400">Cargando...</p>
+      </div>
+    );
+  }
+
+  // ─── Error de carga inicial ──────────────────────────────────────────────
+  if (!opciones) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm text-center max-w-sm">
+          {error || 'No se pudieron cargar los datos. Recargá la página.'}
+        </div>
+      </div>
+    );
+  }
+
+  // ─── Formulario principal ────────────────────────────────────────────────
+  return (
+    <div className="min-h-screen bg-gray-50 py-8 px-5">
+      <div className="max-w-md mx-auto">
+
+        {/* Encabezado */}
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold text-gray-900">Registrar turno</h1>
+          <p className="text-gray-500 text-sm mt-1">Benveo · CoLiving</p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+
+          {/* ── Nombre ─────────────────────────────────────────────────── */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Tu nombre *
+            </label>
+            <select
+              name="nombre"
+              value={form.nombre}
+              onChange={handleChange}
+              required
+              className="w-full border border-gray-300 rounded-xl px-4 py-3 text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">Seleccioná tu nombre</option>
+              {(opciones.empleadas ?? []).map((emp) => (
+                <option key={emp} value={emp}>{emp}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* ── Departamento ────────────────────────────────────────────── */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Departamento *
+            </label>
+            <select
+              name="departamento"
+              value={form.departamento}
+              onChange={handleChange}
+              required
+              className="w-full border border-gray-300 rounded-xl px-4 py-3 text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">Seleccioná el departamento</option>
+              {(opciones.departamentos ?? []).map((dep) => (
+                <option key={dep} value={dep}>{dep}</option>
+              ))}
+            </select>
+
+            {limiteDepartamento && (
+              <p className="text-sm text-gray-500 mt-2 font-medium">
+                ⏱ Límite: {limiteDepartamento.limiteHoras} hs
+                {limiteDepartamento.permiteExcederConLavado &&
+                  ' · puede extenderse +1 hs si hay motivo'}
+              </p>
+            )}
+          </div>
+
+          {/* ── Motivos de exceso ─────────────────────────────────────────
+              Visible siempre que el depto permita extenderse,
+              no solo cuando se superan las horas.                         */}
+          {limiteDepartamento?.permiteExcederConLavado && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 space-y-2">
+              <p className="text-sm font-medium text-amber-800">
+                ¿Por qué se extendió el turno?
+              </p>
+              <p className="text-xs text-amber-600">
+                Seleccioná si aplica. Esto permite cargar hasta{' '}
+                {limiteDepartamento.limiteHoras + 1} hs en este departamento.
+              </p>
+              <div className="flex flex-wrap gap-2 pt-1">
+                {MOTIVOS_EXCESO.map((motivo) => {
+                  const seleccionado = form.motivosExceso.includes(motivo.id);
+                  return (
+                    <button
+                      key={motivo.id}
+                      type="button"
+                      onClick={() => toggleMotivo(motivo.id)}
+                      className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors border ${
+                        seleccionado
+                          ? 'bg-amber-500 text-white border-amber-500'
+                          : 'bg-white text-amber-700 border-amber-300 hover:border-amber-500'
+                      }`}
+                    >
+                      {seleccionado ? '✓ ' : ''}{motivo.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* ── Fecha ───────────────────────────────────────────────────── */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Fecha del turno *
+            </label>
+            <input
+              type="date"
+              name="fecha"
+              value={form.fecha}
+              onChange={handleChange}
+              required
+              max={new Date().toISOString().split('T')[0]}
+              className="w-full border border-gray-300 rounded-xl px-4 py-3 text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          {/* ── Horas (selectores compatibles con iOS Safari) ─────────── */}
+          <div className="space-y-3">
+
+            {/* Hora entrada */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Hora entrada *
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <select
+                  name="horaEntradaH"
+                  value={form.horaEntradaH}
+                  onChange={handleChange}
+                  required
+                  className="w-full border border-gray-300 rounded-xl px-4 py-3 text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Hora</option>
+                  {HORAS.map((h) => (
+                    <option key={h} value={h}>{h}hs</option>
+                  ))}
+                </select>
+                <select
+                  name="horaEntradaM"
+                  value={form.horaEntradaM}
+                  onChange={handleChange}
+                  className="w-full border border-gray-300 rounded-xl px-4 py-3 text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {MINUTOS.map((m) => (
+                    <option key={m} value={m}>{m}min</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Hora salida */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Hora salida *
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <select
+                  name="horaSalidaH"
+                  value={form.horaSalidaH}
+                  onChange={handleChange}
+                  required
+                  className="w-full border border-gray-300 rounded-xl px-4 py-3 text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Hora</option>
+                  {HORAS.map((h) => (
+                    <option key={h} value={h}>{h}hs</option>
+                  ))}
+                </select>
+                <select
+                  name="horaSalidaM"
+                  value={form.horaSalidaM}
+                  onChange={handleChange}
+                  className="w-full border border-gray-300 rounded-xl px-4 py-3 text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {MINUTOS.map((m) => (
+                    <option key={m} value={m}>{m}min</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Duración calculada ───────────────────────────────────────── */}
+          {duracion !== null && duracion > 0 && (
+            <div className="space-y-2">
+              <div className="bg-gray-100 rounded-xl px-4 py-3 flex items-center justify-between">
+                <span className="text-sm text-gray-600">Horas cargadas</span>
+                <span className={`text-lg font-bold ${excedeLimite ? 'text-red-600' : 'text-gray-900'}`}>
+                  {duracion.toFixed(1)} hs
+                </span>
+              </div>
+
+              {/* Alerta de exceso */}
+              {excedeLimite && (
+                <div className="bg-red-50 border border-red-300 rounded-xl px-4 py-3 flex items-start gap-2">
+                  <span className="text-red-600 font-black text-lg leading-none mt-0.5">!</span>
+                  <p className="text-red-700 text-sm font-medium">
+                    El tope para <strong>{form.departamento}</strong> es de{' '}
+                    <strong>{limiteEfectivo} hs</strong>
+                    {tieneMotivo && limiteDepartamento?.permiteExcederConLavado
+                      ? ' (incluye +1 hs por el motivo indicado)'
+                      : ''}.{' '}
+                    Estás cargando {duracion.toFixed(1)} hs.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Viáticos ────────────────────────────────────────────────── */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Viáticos ($ ARS)
+            </label>
+            <input
+              type="number"
+              name="viaticos"
+              inputMode="numeric"
+              value={form.viaticos}
+              onChange={handleChange}
+              min="0"
+              placeholder="0"
+              className="w-full border border-gray-300 rounded-xl px-4 py-3 text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          {/* ── Comentarios ─────────────────────────────────────────────── */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Comentarios
+            </label>
+            <textarea
+              name="comentarios"
+              value={form.comentarios}
+              onChange={handleChange}
+              rows={3}
+              placeholder={
+                form.motivosExceso.includes('otros')
+                  ? 'Explicá el motivo por el que se extendió el turno...'
+                  : 'Algo que quieras aclarar sobre el turno...'
+              }
+              className="w-full border border-gray-300 rounded-xl px-4 py-3 text-gray-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+            />
+          </div>
+
+          {/* ── Fotos ───────────────────────────────────────────────────────
+              Las fotos se guardan en Supabase Storage (bucket: turnos-fotos)
+              y quedan accesibles desde el detalle del turno en el admin.   */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Fotos del trabajo
+            </label>
+            <p className="text-xs text-gray-400 mb-2">
+              Podés agregar fotos del departamento limpio o del trabajo realizado.
+            </p>
+
+            {/* Grid de previews */}
+            {previews.length > 0 && (
+              <div className="grid grid-cols-3 gap-2 mb-3">
+                {previews.map((src, i) => (
+                  <div key={i} className="relative aspect-square">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={src}
+                      alt={`Foto ${i + 1}`}
+                      className="w-full h-full object-cover rounded-lg border border-gray-200"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removerFoto(i)}
+                      className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold shadow"
+                      aria-label="Eliminar foto"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Botón de agregar fotos */}
+            <button
+              type="button"
+              onClick={() => inputFotosRef.current?.click()}
+              className="w-full border-2 border-dashed border-gray-300 rounded-xl py-3 px-4 text-sm text-gray-500 hover:border-blue-400 hover:text-blue-500 transition-colors"
+            >
+              {previews.length === 0 ? '📷 Agregar fotos' : '📷 Agregar más fotos'}
+            </button>
+
+            {/* Input oculto — acepta solo imágenes, permite múltiple selección */}
+            <input
+              ref={inputFotosRef}
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={handleSeleccionarFotos}
+              className="hidden"
+            />
+          </div>
+
+          {/* ── Error ───────────────────────────────────────────────────── */}
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">
+              {error}
+            </div>
+          )}
+
+          {/* ── Botón enviar ─────────────────────────────────────────────── */}
+          <button
+            type="submit"
+            disabled={enviando || excedeLimite}
+            className="w-full bg-blue-600 text-white py-4 rounded-xl font-semibold text-base hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {enviando ? 'Guardando...' : 'Registrar turno'}
+          </button>
+
+        </form>
+      </div>
+    </div>
+  );
 }
