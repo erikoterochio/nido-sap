@@ -78,6 +78,13 @@ interface DatosHistorial {
   semanas: SemanaHistorial[]
 }
 
+interface DetalleCelda {
+  empleada: EmpleadaHistorial
+  semana: SemanaHistorial
+  turnos: Turno[]
+  cargando: boolean
+}
+
 type ModoVista = 'semana' | 'mes'
 type TabLiquidar = 'pendientes' | 'pagados' | 'todos'
 type TabPrincipal = 'liquidar' | 'historial'
@@ -270,6 +277,9 @@ function VistaHistorial() {
   const [empSeleccionadas, setEmpSeleccionadas] = useState<Set<string>>(new Set())
   const [dropdownAbierto, setDropdownAbierto] = useState(false)
  
+  // Panel de detalle al hacer click en una celda
+  const [detalle, setDetalle] = useState<DetalleCelda | null>(null)
+ 
   const cargar = useCallback(async () => {
     setCargando(true)
     setError(null)
@@ -278,7 +288,6 @@ function VistaHistorial() {
       if (!res.ok) throw new Error('Error al cargar historial')
       const json: DatosHistorial = await res.json()
       setDatos(json)
-      // Al cargar, seleccionamos todas por defecto
       setEmpSeleccionadas(new Set(json.empleadas.map(e => e.id)))
     } catch {
       setError('No se pudo cargar el historial.')
@@ -296,6 +305,35 @@ function VistaHistorial() {
     document.addEventListener('click', handler)
     return () => document.removeEventListener('click', handler)
   }, [dropdownAbierto])
+ 
+  // Abrir detalle: llama a la API de semana filtrando por empleada
+  const abrirDetalle = async (empleada: EmpleadaHistorial, semana: SemanaHistorial) => {
+    // Si ya está abierto el mismo, cerrarlo
+    if (detalle?.empleada.id === empleada.id && detalle?.semana.inicio === semana.inicio) {
+      setDetalle(null)
+      return
+    }
+ 
+    setDetalle({ empleada, semana, turnos: [], cargando: true })
+ 
+    try {
+      const params = new URLSearchParams({ inicio: semana.inicio, fin: semana.fin })
+      const res = await fetch(`/api/pagos/semana?${params.toString()}`)
+      if (!res.ok) throw new Error('Error')
+      const json = await res.json()
+ 
+      // Buscamos los turnos de esta empleada en particular
+      const empData = json.empleados?.find((e: any) => e.id === empleada.id)
+      setDetalle({
+        empleada,
+        semana,
+        turnos: empData?.turnos ?? [],
+        cargando: false,
+      })
+    } catch {
+      setDetalle(prev => prev ? { ...prev, cargando: false } : null)
+    }
+  }
  
   if (cargando) {
     return (
@@ -325,12 +363,11 @@ function VistaHistorial() {
     )
   }
  
-  // Empleadas con actividad en el período
   const empleadasConActividad = datos.empleadas.filter(emp =>
     datos.semanas.some(s => s.montosPorEmpleado[emp.id] !== null)
   )
  
-  // Empleadas "activas" = las que tuvieron actividad en el último mes
+  // "Activa" = actividad en el último mes
   const haceUnMes = new Date()
   haceUnMes.setMonth(haceUnMes.getMonth() - 1)
   const haceUnMesStr = haceUnMes.toISOString().split('T')[0]
@@ -342,7 +379,6 @@ function VistaHistorial() {
     ).map(e => e.id)
   )
  
-  // Aplicamos filtros
   const empleadasVisibles = empleadasConActividad.filter(emp => {
     if (soloActivas && !idsActivas.has(emp.id)) return false
     if (empSeleccionadas.size > 0 && !empSeleccionadas.has(emp.id)) return false
@@ -352,27 +388,16 @@ function VistaHistorial() {
   const toggleEmpleada = (id: string) => {
     setEmpSeleccionadas(prev => {
       const next = new Set(prev)
-      if (next.has(id)) {
-        next.delete(id)
-      } else {
-        next.add(id)
-      }
+      next.has(id) ? next.delete(id) : next.add(id)
       return next
     })
   }
- 
-  const seleccionarTodas = () =>
-    setEmpSeleccionadas(new Set(empleadasConActividad.map(e => e.id)))
- 
-  const deseleccionarTodas = () =>
-    setEmpSeleccionadas(new Set())
  
   return (
     <div className="space-y-4">
       {/* ── Barra de filtros ── */}
       <div className="flex items-center gap-3 flex-wrap">
- 
-        {/* Selector de rango de meses */}
+        {/* Rango de meses */}
         <div className="flex rounded-lg border border-slate-200 bg-white overflow-hidden">
           {([1, 2, 3, 6] as const).map(m => (
             <button
@@ -387,7 +412,7 @@ function VistaHistorial() {
           ))}
         </div>
  
-        {/* Toggle activas / todas */}
+        {/* Activas / Todas */}
         <div className="flex rounded-lg border border-slate-200 bg-white overflow-hidden">
           <button
             onClick={() => setSoloActivas(true)}
@@ -407,7 +432,7 @@ function VistaHistorial() {
           </button>
         </div>
  
-        {/* Multi-select de empleadas */}
+        {/* Multi-select empleadas */}
         <div className="relative" onClick={e => e.stopPropagation()}>
           <button
             onClick={() => setDropdownAbierto(!dropdownAbierto)}
@@ -421,193 +446,272 @@ function VistaHistorial() {
               : `${empSeleccionadas.size} empleadas`}
             <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${dropdownAbierto ? 'rotate-180' : ''}`} />
           </button>
- 
           {dropdownAbierto && (
             <div className="absolute top-full left-0 mt-1 w-64 bg-white border border-slate-200 rounded-xl shadow-lg z-20 overflow-hidden">
-              {/* Acciones rápidas */}
               <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-100">
-                <button onClick={seleccionarTodas} className="text-xs text-primary hover:underline font-medium">
+                <button
+                  onClick={() => setEmpSeleccionadas(new Set(empleadasConActividad.map(e => e.id)))}
+                  className="text-xs text-primary hover:underline font-medium"
+                >
                   Seleccionar todas
                 </button>
                 <span className="text-slate-300">·</span>
-                <button onClick={deseleccionarTodas} className="text-xs text-slate-500 hover:underline">
+                <button onClick={() => setEmpSeleccionadas(new Set())} className="text-xs text-slate-500 hover:underline">
                   Limpiar
                 </button>
               </div>
-              {/* Lista de empleadas */}
               <div className="max-h-52 overflow-y-auto py-1">
-                {empleadasConActividad.map(emp => {
-                  const activa = idsActivas.has(emp.id)
-                  const seleccionada = empSeleccionadas.has(emp.id)
-                  return (
-                    <button
-                      key={emp.id}
-                      onClick={() => toggleEmpleada(emp.id)}
-                      className="w-full flex items-center gap-3 px-3 py-2 hover:bg-slate-50 transition-colors text-left"
-                    >
-                      {/* Checkbox visual */}
-                      <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${
-                        seleccionada
-                          ? 'bg-slate-900 border-slate-900'
-                          : 'border-slate-300'
-                      }`}>
-                        {seleccionada && <Check className="w-2.5 h-2.5 text-white" />}
-                      </div>
-                      <span className="text-sm text-slate-700 flex-1">
-                        {emp.nombre} {emp.apellido}
-                      </span>
-                      {/* Indicador activa/inactiva */}
-                      {activa
-                        ? <span className="text-xs text-emerald-600 font-medium">activa</span>
-                        : <span className="text-xs text-slate-300">sin actividad</span>
-                      }
-                    </button>
-                  )
-                })}
+                {empleadasConActividad.map(emp => (
+                  <button
+                    key={emp.id}
+                    onClick={() => toggleEmpleada(emp.id)}
+                    className="w-full flex items-center gap-3 px-3 py-2 hover:bg-slate-50 transition-colors text-left"
+                  >
+                    <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${
+                      empSeleccionadas.has(emp.id) ? 'bg-slate-900 border-slate-900' : 'border-slate-300'
+                    }`}>
+                      {empSeleccionadas.has(emp.id) && <Check className="w-2.5 h-2.5 text-white" />}
+                    </div>
+                    <span className="text-sm text-slate-700 flex-1">{emp.nombre} {emp.apellido}</span>
+                    {idsActivas.has(emp.id)
+                      ? <span className="text-xs text-emerald-600 font-medium">activa</span>
+                      : <span className="text-xs text-slate-300">sin actividad</span>
+                    }
+                  </button>
+                ))}
               </div>
             </div>
           )}
         </div>
  
-        {/* Info de resultados */}
         <p className="text-sm text-slate-400 ml-auto">
           <span className="font-medium text-slate-600">{datos.semanas.length}</span> semanas ·{' '}
           <span className="font-medium text-slate-600">{empleadasVisibles.length}</span> empleadas
         </p>
       </div>
  
-      {/* ── Grilla ── */}
-      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-200">
-                {/* Semana — sticky */}
-                <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap sticky left-0 bg-slate-50 z-10 min-w-[130px]">
-                  Semana
-                </th>
-                {/* Se pagó — MOVIDO A LA IZQUIERDA */}
-                <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">
-                  Pagó
-                </th>
-                {/* Total — MOVIDO A LA IZQUIERDA */}
-                <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap min-w-[120px]">
-                  Total
-                </th>
-                {/* Columna por empleada */}
-                {empleadasVisibles.map(emp => (
-                  <th key={emp.id} className="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap min-w-[110px]">
-                    {emp.nombre.split(' ')[0]} {emp.apellido.split(' ')[0]}
+      {/* ── Layout: grilla + panel de detalle ── */}
+      <div className={`flex gap-4 items-start ${detalle ? 'flex-col xl:flex-row' : ''}`}>
+ 
+        {/* ── Grilla ── */}
+        <div className={`bg-white border border-slate-200 rounded-xl overflow-hidden ${detalle ? 'xl:flex-1' : 'w-full'}`}>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200">
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap sticky left-0 bg-slate-50 z-10 min-w-[130px]">
+                    Semana
                   </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {datos.semanas.map((semana) => {
-                const hoy = new Date().toISOString().split('T')[0]
-                const esSemanaActual = hoy >= semana.inicio && hoy <= semana.fin
+                  <th className="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap">
+                    Pagó
+                  </th>
+                  <th className="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap min-w-[120px]">
+                    Total
+                  </th>
+                  {empleadasVisibles.map(emp => (
+                    <th key={emp.id} className="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap min-w-[110px]">
+                      {emp.nombre.split(' ')[0]} {emp.apellido.split(' ')[0]}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {datos.semanas.map((semana) => {
+                  const hoy = new Date().toISOString().split('T')[0]
+                  const esSemanaActual = hoy >= semana.inicio && hoy <= semana.fin
+                  const totalVisible = empleadasVisibles.reduce((acc, emp) =>
+                    acc + (semana.montosPorEmpleado[emp.id]?.monto ?? 0), 0)
  
-                // Total filtrado solo para empleadas visibles
-                const totalVisible = empleadasVisibles.reduce((acc, emp) => {
-                  return acc + (semana.montosPorEmpleado[emp.id]?.monto ?? 0)
-                }, 0)
- 
-                return (
-                  <tr
-                    key={semana.inicio}
-                    className={`transition-colors ${esSemanaActual ? 'bg-primary/5' : 'hover:bg-slate-50'}`}
-                  >
-                    {/* Semana — sticky */}
-                    <td className={`px-4 py-3 sticky left-0 z-10 ${esSemanaActual ? 'bg-primary/5' : 'bg-white'}`}>
-                      <div className="flex items-center gap-2">
-                        {esSemanaActual && <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />}
-                        <div>
-                          <p className="font-medium text-slate-800 text-xs whitespace-nowrap">
-                            {formatFechaCorta(semana.inicio)} – {formatFechaCorta(semana.fin)}
-                          </p>
-                          <p className="text-xs text-slate-400">{formatMes(semana.diaPago)}</p>
-                        </div>
-                      </div>
-                    </td>
- 
-                    {/* Se pagó — IZQUIERDA */}
-                    <td className="px-4 py-3 text-center">
-                      {semana.pagada ? (
-                        <span className="inline-flex items-center justify-center w-6 h-6 bg-emerald-100 rounded-full">
-                          <Check className="w-3.5 h-3.5 text-emerald-600" />
-                        </span>
-                      ) : semana.tienePagos ? (
-                        <span className="inline-flex items-center justify-center w-6 h-6 bg-amber-100 rounded-full" title="Pago parcial">
-                          <Clock className="w-3.5 h-3.5 text-amber-600" />
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center justify-center w-6 h-6 bg-slate-100 rounded-full">
-                          <X className="w-3.5 h-3.5 text-slate-400" />
-                        </span>
-                      )}
-                    </td>
- 
-                    {/* Total — IZQUIERDA */}
-                    <td className="px-4 py-3 text-right">
-                      <span className="font-bold text-slate-900 text-sm">
-                        {totalVisible > 0 ? formatPesos(totalVisible) : '—'}
-                      </span>
-                    </td>
- 
-                    {/* Monto por empleada */}
-                    {empleadasVisibles.map(emp => {
-                      const celda = semana.montosPorEmpleado[emp.id]
-                      return (
-                        <td key={emp.id} className="px-3 py-3 text-right">
-                          {celda ? (
-                            <span className={`font-medium text-sm ${
-                              celda.pagado ? 'text-emerald-700' : 'text-slate-500'
-                            }`}>
-                              {formatPesos(celda.monto)}
-                            </span>
-                          ) : (
-                            <span className="text-slate-200 text-sm">—</span>
-                          )}
-                        </td>
-                      )
-                    })}
-                  </tr>
-                )
-              })}
-            </tbody>
- 
-            {/* Footer totales */}
-            <tfoot>
-              <tr className="border-t-2 border-slate-200 bg-slate-50">
-                <td className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase sticky left-0 bg-slate-50">
-                  Total período
-                </td>
-                <td /> {/* Se pagó — vacío */}
-                <td className="px-4 py-3 text-right">
-                  <span className="font-bold text-slate-900 text-sm">
-                    {formatPesos(
-                      datos.semanas.reduce((acc, s) =>
-                        acc + empleadasVisibles.reduce((a, emp) => a + (s.montosPorEmpleado[emp.id]?.monto ?? 0), 0)
-                      , 0)
-                    )}
-                  </span>
-                </td>
-                {empleadasVisibles.map(emp => {
-                  const total = datos.semanas.reduce((acc, s) => {
-                    return acc + (s.montosPorEmpleado[emp.id]?.monto ?? 0)
-                  }, 0)
                   return (
-                    <td key={emp.id} className="px-3 py-3 text-right">
-                      <span className="font-semibold text-slate-700 text-sm">
-                        {total > 0 ? formatPesos(total) : '—'}
-                      </span>
-                    </td>
+                    <tr
+                      key={semana.inicio}
+                      className={`transition-colors ${esSemanaActual ? 'bg-primary/5' : 'hover:bg-slate-50'}`}
+                    >
+                      {/* Semana */}
+                      <td className={`px-4 py-3 sticky left-0 z-10 ${esSemanaActual ? 'bg-primary/5' : 'bg-white'}`}>
+                        <div className="flex items-center gap-2">
+                          {esSemanaActual && <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />}
+                          <div>
+                            <p className="font-medium text-slate-800 text-xs whitespace-nowrap">
+                              {formatFechaCorta(semana.inicio)} – {formatFechaCorta(semana.fin)}
+                            </p>
+                            <p className="text-xs text-slate-400">{formatMes(semana.diaPago)}</p>
+                          </div>
+                        </div>
+                      </td>
+ 
+                      {/* Se pagó */}
+                      <td className="px-4 py-3 text-center">
+                        {semana.pagada ? (
+                          <span className="inline-flex items-center justify-center w-6 h-6 bg-emerald-100 rounded-full">
+                            <Check className="w-3.5 h-3.5 text-emerald-600" />
+                          </span>
+                        ) : semana.tienePagos ? (
+                          <span className="inline-flex items-center justify-center w-6 h-6 bg-amber-100 rounded-full" title="Pago parcial">
+                            <Clock className="w-3.5 h-3.5 text-amber-600" />
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center justify-center w-6 h-6 bg-slate-100 rounded-full">
+                            <X className="w-3.5 h-3.5 text-slate-400" />
+                          </span>
+                        )}
+                      </td>
+ 
+                      {/* Total */}
+                      <td className="px-4 py-3 text-right">
+                        <span className="font-bold text-slate-900 text-sm">
+                          {totalVisible > 0 ? formatPesos(totalVisible) : '—'}
+                        </span>
+                      </td>
+ 
+                      {/* Celda por empleada — clickeable */}
+                      {empleadasVisibles.map(emp => {
+                        const celda = semana.montosPorEmpleado[emp.id]
+                        const esSeleccionada =
+                          detalle?.empleada.id === emp.id &&
+                          detalle?.semana.inicio === semana.inicio
+ 
+                        return (
+                          <td key={emp.id} className="px-3 py-3 text-right">
+                            {celda ? (
+                              <button
+                                onClick={() => abrirDetalle(emp, semana)}
+                                className={`font-medium text-sm px-2 py-1 rounded-lg transition-colors ${
+                                  esSeleccionada
+                                    ? 'bg-slate-900 text-white'
+                                    : celda.pagado
+                                    ? 'text-emerald-700 hover:bg-emerald-50'
+                                    : 'text-slate-500 hover:bg-slate-100'
+                                }`}
+                                title="Ver detalle de turnos"
+                              >
+                                {formatPesos(celda.monto)}
+                              </button>
+                            ) : (
+                              <span className="text-slate-200 text-sm px-2">—</span>
+                            )}
+                          </td>
+                        )
+                      })}
+                    </tr>
                   )
                 })}
-              </tr>
-            </tfoot>
-          </table>
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-slate-200 bg-slate-50">
+                  <td className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase sticky left-0 bg-slate-50">
+                    Total período
+                  </td>
+                  <td />
+                  <td className="px-4 py-3 text-right">
+                    <span className="font-bold text-slate-900 text-sm">
+                      {formatPesos(
+                        datos.semanas.reduce((acc, s) =>
+                          acc + empleadasVisibles.reduce((a, emp) =>
+                            a + (s.montosPorEmpleado[emp.id]?.monto ?? 0), 0), 0)
+                      )}
+                    </span>
+                  </td>
+                  {empleadasVisibles.map(emp => {
+                    const total = datos.semanas.reduce((acc, s) =>
+                      acc + (s.montosPorEmpleado[emp.id]?.monto ?? 0), 0)
+                    return (
+                      <td key={emp.id} className="px-3 py-3 text-right">
+                        <span className="font-semibold text-slate-700 text-sm">
+                          {total > 0 ? formatPesos(total) : '—'}
+                        </span>
+                      </td>
+                    )
+                  })}
+                </tr>
+              </tfoot>
+            </table>
+          </div>
         </div>
+ 
+        {/* ── Panel de detalle de turnos ── */}
+        {detalle && (
+          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden xl:w-[380px] shrink-0 w-full">
+            {/* Header del panel */}
+            <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+              <div>
+                <p className="font-semibold text-slate-900 text-sm">
+                  {detalle.empleada.nombre} {detalle.empleada.apellido}
+                </p>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {formatFechaCorta(detalle.semana.inicio)} – {formatFechaCorta(detalle.semana.fin)}
+                </p>
+              </div>
+              <button
+                onClick={() => setDetalle(null)}
+                className="text-slate-400 hover:text-slate-600 p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+ 
+            {/* Contenido */}
+            {detalle.cargando ? (
+              <div className="flex items-center justify-center h-32">
+                <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
+                <span className="ml-2 text-slate-400 text-sm">Cargando turnos...</span>
+              </div>
+            ) : detalle.turnos.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-32 text-slate-400">
+                <p className="text-sm">No hay turnos registrados</p>
+                <p className="text-xs mt-1 text-slate-300">El monto puede corresponder a un pago manual</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-xs text-slate-400 border-b border-slate-100">
+                      <th className="text-left px-4 py-2 font-medium">Fecha</th>
+                      <th className="text-left px-3 py-2 font-medium">Depto</th>
+                      <th className="text-center px-3 py-2 font-medium">Hs</th>
+                      <th className="text-center px-3 py-2 font-medium">Tipo</th>
+                      <th className="text-right px-4 py-2 font-medium">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {detalle.turnos.map(turno => (
+                      <tr key={turno.id} className="hover:bg-slate-50">
+                        <td className="px-4 py-2.5 text-slate-700 text-xs whitespace-nowrap">
+                          {formatFecha(turno.fecha)}
+                        </td>
+                        <td className="px-3 py-2.5 text-slate-600 text-xs max-w-[100px] truncate">
+                          {turno.departamento}
+                        </td>
+                        <td className="px-3 py-2.5 text-center text-xs text-slate-600">
+                          {formatHoras(turno.duracionHoras)}
+                        </td>
+                        <td className="px-3 py-2.5 text-center">
+                          {turno.esFeriadoFinde
+                            ? <span className="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full text-xs">Finde</span>
+                            : <span className="text-slate-300 text-xs">—</span>
+                          }
+                        </td>
+                        <td className="px-4 py-2.5 text-right font-medium text-slate-800 text-xs">
+                          {formatPesos(turno.montoTotal)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 border-slate-200">
+                      <td colSpan={4} className="px-4 py-2.5 text-right text-xs font-semibold text-slate-600">
+                        Total:
+                      </td>
+                      <td className="px-4 py-2.5 text-right font-bold text-slate-900 text-sm">
+                        {formatPesos(detalle.turnos.reduce((acc, t) => acc + t.montoTotal, 0))}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
       </div>
  
       {/* Leyenda */}
@@ -631,6 +735,9 @@ function VistaHistorial() {
         <span className="flex items-center gap-1.5">
           <span className="text-slate-500 font-medium">$ gris</span>
           = calculado, pendiente
+        </span>
+        <span className="flex items-center gap-1.5 text-slate-300">
+          Hacé click en cualquier monto para ver los turnos
         </span>
       </div>
     </div>
