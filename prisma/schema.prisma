@@ -124,10 +124,8 @@ model TurnoLimpieza {
   mes             DateTime      @db.Date
   estado          EstadoTurno   @default(PENDIENTE_REVISION)
   alertas         String[]
-  // Motivos por los que se extendió el turno (ej: lavado_sabanas_toallas, estadia_larga, otros)
-  motivosExceso   String[]      @default([])
-  // URLs públicas de las fotos subidas a Supabase Storage (bucket: turnos-fotos)
-  fotosUrls       String[]      @default([])
+  motivosExceso   String[]      @default([]) @map("motivos_exceso")
+  fotosUrls       String[]      @default([]) @map("fotos_urls")
   pagoId          String?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
