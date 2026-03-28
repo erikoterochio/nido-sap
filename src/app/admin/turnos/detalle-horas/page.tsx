@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   AlertTriangle, Check, Edit2, Clock,
-  Download, ChevronDown, ChevronUp, RotateCcw, X
+  Download, ChevronDown, ChevronUp, RotateCcw, X, Camera, Image
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -26,6 +26,10 @@ interface Turno {
   tipo: 'LIMPIEZA' | 'MANTENIMIENTO'
   alertas: string[]
   comentarios?: string
+  // Motivos por los que se extendió el turno (cargados desde el formulario)
+  motivosExceso?: string[]
+  // URLs de fotos subidas a Supabase Storage
+  fotosUrls?: string[]
   empleado: { id: string; nombre: string; apellido: string }
   departamento: { id: string; nombre: string }
   historial?: HistorialItem[]
@@ -62,6 +66,13 @@ function formatFecha(fechaStr: string) {
   }
 }
 
+// Etiquetas legibles para los motivos de exceso
+const ETIQUETAS_MOTIVO: Record<string, string> = {
+  lavado_sabanas_toallas: 'Lavado sábanas / toallas',
+  estadia_larga:          'Estadía de huésped larga',
+  otros:                  'Otros',
+}
+
 // ============================================================================
 // COMPONENTE PRINCIPAL
 // ============================================================================
@@ -90,13 +101,16 @@ export default function DetalleHorasPage() {
   const [turnoSelecto,  setTurnoSelecto]  = useState<Turno | null>(null)
   const [guardando,     setGuardando]     = useState(false)
 
+  // --- Lightbox de fotos ---
+  const [fotoAmpliada, setFotoAmpliada]   = useState<string | null>(null)
+
   // --- Campos del formulario de edición ---
-  const [formEntrada,   setFormEntrada]   = useState('')
-  const [formSalida,    setFormSalida]    = useState('')
-  const [formViaticos,  setFormViaticos]  = useState(0)
-  const [formEsFinde,   setFormEsFinde]   = useState(false)
-  const [formTipo,      setFormTipo]      = useState<'LIMPIEZA' | 'MANTENIMIENTO'>('LIMPIEZA')
-  const [formMotivo,    setFormMotivo]    = useState('')
+  const [formEntrada,    setFormEntrada]    = useState('')
+  const [formSalida,     setFormSalida]     = useState('')
+  const [formViaticos,   setFormViaticos]   = useState(0)
+  const [formEsFinde,    setFormEsFinde]    = useState(false)
+  const [formTipo,       setFormTipo]       = useState<'LIMPIEZA' | 'MANTENIMIENTO'>('LIMPIEZA')
+  const [formMotivo,     setFormMotivo]     = useState('')
   const [formComentario, setFormComentario] = useState('')
 
   // ============================================================================
@@ -148,7 +162,6 @@ export default function DetalleHorasPage() {
   // ============================================================================
 
   async function abrirModal(turno: Turno) {
-    // Traer detalle completo con historial
     try {
       const res = await fetch(`/api/turnos/${turno.id}`)
       const detalle: Turno = res.ok ? await res.json() : turno
@@ -175,7 +188,6 @@ export default function DetalleHorasPage() {
     if (!turnoSelecto || !formMotivo) return
     setGuardando(true)
     try {
-      // Recalcular duración y monto con los nuevos horarios
       const [hE, mE] = formEntrada.split(':').map(Number)
       const [hS, mS] = formSalida.split(':').map(Number)
       const duracionHoras = ((hS * 60 + mS) - (hE * 60 + mE)) / 60
@@ -190,17 +202,17 @@ export default function DetalleHorasPage() {
           viaticos:       formViaticos,
           esFeriadoFinde: formEsFinde,
           tipo:           formTipo,
-          estado:         'APROBADO', // el admin revisó → aprobado automático
+          estado:         'APROBADO',
           motivo:         formMotivo,
           comentario:     formComentario,
-          usuarioId:      'admin-temp', // TODO: reemplazar con sesión real
+          usuarioId:      'admin-temp',
         }),
       })
 
       if (!res.ok) throw new Error('Error al guardar')
 
       setShowModal(false)
-      cargarTurnos() // recargar lista
+      cargarTurnos()
     } catch {
       alert('Error al guardar los cambios. Intentá de nuevo.')
     } finally {
@@ -209,7 +221,7 @@ export default function DetalleHorasPage() {
   }
 
   // ============================================================================
-  // APROBAR DIRECTAMENTE (sin edición)
+  // APROBAR DIRECTAMENTE
   // ============================================================================
 
   async function aprobarTurno(turno: Turno) {
@@ -243,8 +255,8 @@ export default function DetalleHorasPage() {
 
   const turnosOrdenados = [...turnos].sort((a, b) => {
     let cmp = 0
-    if (sortBy === 'fecha')       cmp = a.fecha.localeCompare(b.fecha)
-    if (sortBy === 'empleado')    cmp = a.empleado.apellido.localeCompare(b.empleado.apellido)
+    if (sortBy === 'fecha')        cmp = a.fecha.localeCompare(b.fecha)
+    if (sortBy === 'empleado')     cmp = a.empleado.apellido.localeCompare(b.empleado.apellido)
     if (sortBy === 'departamento') cmp = a.departamento.nombre.localeCompare(b.departamento.nombre)
     return sortOrder === 'asc' ? cmp : -cmp
   })
@@ -258,10 +270,10 @@ export default function DetalleHorasPage() {
   // RESUMEN
   // ============================================================================
 
-  const pendientesCount  = turnos.filter(t => t.estado === 'PENDIENTE_REVISION').length
-  const totalHoras       = turnosOrdenados.reduce((a, t) => a + Number(t.duracionHoras), 0)
-  const totalMonto       = turnosOrdenados.reduce((a, t) => a + Number(t.montoTotal), 0)
-  const totalViaticos    = turnosOrdenados.reduce((a, t) => a + Number(t.viaticos), 0)
+  const pendientesCount = turnos.filter(t => t.estado === 'PENDIENTE_REVISION').length
+  const totalHoras      = turnosOrdenados.reduce((a, t) => a + Number(t.duracionHoras), 0)
+  const totalMonto      = turnosOrdenados.reduce((a, t) => a + Number(t.montoTotal), 0)
+  const totalViaticos   = turnosOrdenados.reduce((a, t) => a + Number(t.viaticos), 0)
 
   // ============================================================================
   // RENDER
@@ -317,10 +329,10 @@ export default function DetalleHorasPage() {
       {/* FILTROS RÁPIDOS POR ESTADO */}
       <div className="flex gap-2 flex-wrap">
         {[
-          { valor: '',                  label: `Todos (${turnos.length})` },
+          { valor: '',                   label: `Todos (${turnos.length})` },
           { valor: 'PENDIENTE_REVISION', label: `Por revisar (${pendientesCount})`, alerta: pendientesCount > 0 },
-          { valor: 'APROBADO',          label: 'Aprobados' },
-          { valor: 'PAGADO',            label: 'Pagados' },
+          { valor: 'APROBADO',           label: 'Aprobados' },
+          { valor: 'PAGADO',             label: 'Pagados' },
         ].map(({ valor, label, alerta }) => (
           <Button
             key={valor}
@@ -338,10 +350,10 @@ export default function DetalleHorasPage() {
       {/* RESUMEN */}
       <div className="grid grid-cols-4 gap-4">
         {[
-          { label: 'Turnos',      valor: turnosOrdenados.length, sufijo: '' },
-          { label: 'Total Horas', valor: totalHoras.toFixed(1),  sufijo: 'hs' },
-          { label: 'Viáticos',    valor: `$${totalViaticos.toLocaleString('es-AR')}`, sufijo: '' },
-          { label: 'Total',       valor: `$${totalMonto.toLocaleString('es-AR')}`, sufijo: '' },
+          { label: 'Turnos',      valor: turnosOrdenados.length,                        sufijo: '' },
+          { label: 'Total Horas', valor: totalHoras.toFixed(1),                         sufijo: 'hs' },
+          { label: 'Viáticos',    valor: `$${totalViaticos.toLocaleString('es-AR')}`,   sufijo: '' },
+          { label: 'Total',       valor: `$${totalMonto.toLocaleString('es-AR')}`,      sufijo: '' },
         ].map(({ label, valor, sufijo }) => (
           <Card key={label}>
             <CardContent className="p-3">
@@ -397,6 +409,8 @@ export default function DetalleHorasPage() {
                   const Icon = badge.icon
                   const { fecha, dia } = formatFecha(turno.fecha)
                   const tieneAlerta = turno.alertas?.length > 0
+                  const tieneMotivos = (turno.motivosExceso?.length ?? 0) > 0
+                  const tieneFotos   = (turno.fotosUrls?.length ?? 0) > 0
 
                   return (
                     <tr key={turno.id} className={`border-b last:border-0 ${
@@ -410,6 +424,13 @@ export default function DetalleHorasPage() {
                           <div className="flex items-center gap-1 mt-1 text-xs text-amber-600">
                             <AlertTriangle className="w-3 h-3" />
                             {turno.alertas[0] === 'DURACION_EXCEDE_LIMITE' ? 'Duración excesiva' : 'Horario inusual'}
+                          </div>
+                        )}
+                        {/* Indicador de fotos en la tabla */}
+                        {tieneFotos && (
+                          <div className="flex items-center gap-1 mt-1 text-xs text-blue-500">
+                            <Camera className="w-3 h-3" />
+                            {turno.fotosUrls!.length} foto{turno.fotosUrls!.length > 1 ? 's' : ''}
                           </div>
                         )}
                       </td>
@@ -450,7 +471,6 @@ export default function DetalleHorasPage() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex gap-1">
-                          {/* Aprobar directo si está pendiente */}
                           {turno.estado === 'PENDIENTE_REVISION' && (
                             <Button variant="ghost" size="sm"
                               className="text-emerald-600 hover:bg-emerald-50"
@@ -459,17 +479,13 @@ export default function DetalleHorasPage() {
                               <Check className="w-4 h-4" />
                             </Button>
                           )}
-                          {/* Editar (bloqueado si pagado) */}
                           <Button variant="ghost" size="sm"
                             disabled={turno.estado === 'PAGADO'}
                             className={turno.estado === 'PENDIENTE_REVISION'
                               ? 'text-amber-600 hover:bg-amber-50'
                               : 'text-slate-500 hover:text-slate-700'
                             }
-                            onClick={() => {
-                              console.log('click editar', turno.id, turno.estado)
-                              abrirModal(turno)
-                            }}
+                            onClick={() => abrirModal(turno)}
                           >
                             <Edit2 className="w-4 h-4" />
                           </Button>
@@ -484,19 +500,26 @@ export default function DetalleHorasPage() {
         )}
       </Card>
 
-      {/* MODAL DE EDICIÓN */}
+      {/* ================================================================
+          MODAL DE DETALLE / EDICIÓN
+          ================================================================ */}
       {showModal && turnoSelecto && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl w-[560px] max-h-[90vh] overflow-auto">
+
             {/* Header */}
             <div className="p-6 border-b flex justify-between items-center">
-              <h2 className="text-xl font-bold text-slate-900">Editar Turno</h2>
+              <div>
+                <h2 className="text-xl font-bold text-slate-900">Detalle del Turno</h2>
+                <p className="text-sm text-slate-500">{turnoSelecto.departamento.nombre}</p>
+              </div>
               <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-slate-600">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <div className="p-6 space-y-5">
+
               {/* Alerta si hay */}
               {turnoSelecto.alertas?.length > 0 && (
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
@@ -506,7 +529,9 @@ export default function DetalleHorasPage() {
                   <ul className="text-sm text-amber-600 list-disc list-inside">
                     {turnoSelecto.alertas.map(a => (
                       <li key={a}>
-                        {a === 'DURACION_EXCEDE_LIMITE' ? 'Duración excede el límite del departamento' : 'Horario inusual (antes de 7am o después de 11pm)'}
+                        {a === 'DURACION_EXCEDE_LIMITE'
+                          ? 'Duración excede el límite del departamento'
+                          : 'Horario inusual (antes de 7am o después de 11pm)'}
                       </li>
                     ))}
                   </ul>
@@ -526,6 +551,56 @@ export default function DetalleHorasPage() {
                     className="w-full border border-slate-200 rounded-xl px-4 py-2.5 bg-slate-50 text-sm" />
                 </div>
               </div>
+
+              {/* Motivos de exceso — solo se muestra si vienen cargados */}
+              {(turnoSelecto.motivosExceso?.length ?? 0) > 0 && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+                  <p className="text-sm font-medium text-amber-800 mb-2">
+                    Motivos declarados para la extensión del turno
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {turnoSelecto.motivosExceso!.map((m) => (
+                      <span
+                        key={m}
+                        className="bg-amber-100 text-amber-700 text-xs px-3 py-1 rounded-full font-medium"
+                      >
+                        {ETIQUETAS_MOTIVO[m] ?? m}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ── Fotos del turno ─────────────────────────────────────────────
+                  Se muestran en grilla. Click en una foto la amplía en lightbox. */}
+              {(turnoSelecto.fotosUrls?.length ?? 0) > 0 && (
+                <div>
+                  <div className="flex items-center gap-2 text-sm font-medium text-slate-700 mb-2">
+                    <Camera className="w-4 h-4" />
+                    Fotos del turno ({turnoSelecto.fotosUrls!.length})
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {turnoSelecto.fotosUrls!.map((url, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => setFotoAmpliada(url)}
+                        className="relative aspect-square rounded-lg overflow-hidden border border-slate-200 hover:ring-2 hover:ring-blue-400 transition-all"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={url}
+                          alt={`Foto ${i + 1} del turno`}
+                          className="w-full h-full object-cover"
+                        />
+                        <div className="absolute inset-0 bg-black/0 hover:bg-black/10 transition-colors flex items-center justify-center">
+                          <Image className="w-5 h-5 text-white opacity-0 hover:opacity-100 drop-shadow" />
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Horarios */}
               <div className="grid grid-cols-2 gap-4">
@@ -566,7 +641,7 @@ export default function DetalleHorasPage() {
                 </div>
               </div>
 
-              {/* Motivo (obligatorio) */}
+              {/* Motivo del cambio (obligatorio) */}
               <div>
                 <label className="block text-sm text-slate-500 mb-1">Motivo del cambio *</label>
                 <select value={formMotivo} onChange={e => setFormMotivo(e.target.value)}
@@ -588,7 +663,7 @@ export default function DetalleHorasPage() {
                   className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm h-20 resize-none" />
               </div>
 
-              {/* Historial de cambios anteriores */}
+              {/* Historial de cambios */}
               {turnoSelecto.historial && turnoSelecto.historial.length > 0 && (
                 <div>
                   <div className="flex items-center gap-2 text-sm font-medium text-slate-700 mb-2">
@@ -626,6 +701,31 @@ export default function DetalleHorasPage() {
           </div>
         </div>
       )}
+
+      {/* ================================================================
+          LIGHTBOX — amplía la foto al hacer click
+          ================================================================ */}
+      {fotoAmpliada && (
+        <div
+          className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60] p-4"
+          onClick={() => setFotoAmpliada(null)}
+        >
+          <button
+            className="absolute top-4 right-4 text-white hover:text-slate-300"
+            onClick={() => setFotoAmpliada(null)}
+          >
+            <X className="w-8 h-8" />
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={fotoAmpliada}
+            alt="Foto ampliada"
+            className="max-w-full max-h-full rounded-xl shadow-2xl object-contain"
+            onClick={e => e.stopPropagation()}
+          />
+        </div>
+      )}
+
     </div>
   )
 }
